@@ -13,6 +13,7 @@ export interface MuJoCoViewerHandle {
   reset: () => void
   isPlaying: () => boolean
   getTrajectory: () => TrajectoryPoint[]
+  loadModelFromXml: (xml: string) => Promise<void>
 }
 
 export interface TrajectoryPoint {
@@ -473,7 +474,42 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
 
     isPlaying: () => playingRef.current,
     getTrajectory: () => [...trajectoryRef.current],
-  }), [syncVisuals])
+
+    loadModelFromXml: async (xml: string) => {
+      const mj = mjRef.current
+      if (!mj) throw new Error('MuJoCo not initialized')
+
+      // Pause and clean up
+      playingRef.current = false
+      dataRef.current?.delete?.()
+      modelRef.current?.delete?.()
+
+      // Write new XML to VFS
+      mj.FS.writeFile('/working/model.xml', xml)
+
+      // Load new model
+      const model = mj.MjModel.loadFromXML('/working/model.xml')
+      const data = new mj.MjData(model)
+      modelRef.current = model
+      dataRef.current = data
+
+      // Rebuild Three.js meshes
+      mj.mj_forward(model, data)
+      const scene = sceneRef.current
+      if (scene) {
+        // Remove old geom meshes
+        geomMeshesRef.current.forEach(mesh => scene.remove(mesh))
+        geomMeshesRef.current.clear()
+        // Rebuild
+        buildGeomMeshes(scene, model, data)
+      }
+
+      stepCountRef.current = 0
+      trajectoryRef.current = []
+      pidIntegralRef.current = 0
+      pidPrevErrorRef.current = 0
+    },
+  }), [syncVisuals, buildGeomMeshes])
 
   // ── Render ──
 
