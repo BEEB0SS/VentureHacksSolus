@@ -174,7 +174,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
     // The car group is rotated -90° around X so MuJoCo Z-up becomes Three.js Y-up.
     // Geoms are placed in raw MuJoCo coordinates inside this group.
     const carGroup = new THREE.Group()
-    carGroup.rotation.x = -Math.PI / 2
+    carGroup.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
     scene.add(carGroup)
     carGroupRef.current = carGroup
 
@@ -352,8 +352,10 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
         car.position.x = point.x
         car.position.z = -point.y
 
-        // Yaw: MuJoCo theta around Z → Three.js rotation around Y
-        car.rotation.y = point.theta
+        // Yaw: use quaternion to combine Z-up→Y-up tilt + heading cleanly
+        const tilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
+        const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -point.theta)
+        car.quaternion.copy(yaw.multiply(tilt))
 
         // Spin wheels around their axle (MuJoCo Y axis in carGroup local space)
         const wheelRotationDelta = (point.v_linear / 0.0325) * (deltaMs / 1000)
@@ -423,7 +425,9 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
       if (car && trajectory.length > 0) {
         car.position.x = trajectory[0].x
         car.position.z = -trajectory[0].y
-        car.rotation.z = trajectory[0].theta
+        const tilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
+        const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -trajectory[0].theta)
+        car.quaternion.copy(yaw.multiply(tilt))
       }
     },
     pause: () => { playingRef.current = false },
@@ -435,7 +439,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
       if (car) {
         car.position.x = 0
         car.position.z = 0
-        car.rotation.y = 0
+        car.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
       }
       wheelAngleRef.current = 0
       // Restore wheels to base orientation
