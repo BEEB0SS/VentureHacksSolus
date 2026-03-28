@@ -378,13 +378,25 @@ export default function SimulatorTab() {
                 <Card title="Trajectory">
                   <div className="h-52 mt-2">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={trajectory} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2a" />
-                        <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
-                        <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
-                        <Tooltip contentStyle={{ backgroundColor: '#0f0f13', border: '1px solid #1e1e2a', borderRadius: 8, fontSize: 12, padding: '8px 12px' }} formatter={(value: number) => [value.toFixed(4), '']} />
-                        <Line type="monotone" dataKey="y" stroke="#6366f1" dot={false} strokeWidth={1.5} />
-                      </LineChart>
+                      {optimResult ? (
+                        <LineChart margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2a" />
+                          <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
+                          <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
+                          <Tooltip contentStyle={{ backgroundColor: '#0f0f13', border: '1px solid #1e1e2a', borderRadius: 8, fontSize: 12, padding: '8px 12px' }} />
+                          <Legend wrapperStyle={{ fontSize: 11, color: '#8b8b9e', paddingTop: 8 }} />
+                          <Line data={optimResult.bad_trajectory} dataKey="y" name="Before" stroke="#f87171" dot={false} strokeWidth={1.5} strokeDasharray="4 3" />
+                          <Line data={optimResult.best_trajectory} dataKey="y" name="After" stroke="#34d399" dot={false} strokeWidth={2} />
+                        </LineChart>
+                      ) : (
+                        <LineChart data={trajectory} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2a" />
+                          <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
+                          <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
+                          <Tooltip contentStyle={{ backgroundColor: '#0f0f13', border: '1px solid #1e1e2a', borderRadius: 8, fontSize: 12, padding: '8px 12px' }} formatter={(value: number) => [value.toFixed(4), '']} />
+                          <Line type="monotone" dataKey="y" stroke="#6366f1" dot={false} strokeWidth={1.5} />
+                        </LineChart>
+                      )}
                     </ResponsiveContainer>
                   </div>
                 </Card>
