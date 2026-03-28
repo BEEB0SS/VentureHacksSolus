@@ -198,13 +198,13 @@ def seed():
     # ------------------------------------------------------------------
     relations = [
         # Power chain
-        (battery_id,   lm2596_id,     "powers",         1.0),
-        (lm2596_id,    esp32_id,       "powers",         1.0),
-        (battery_id,   drv8825_id,     "powers",         1.0),
+        (battery_id,   lm2596_id,     "connected_to",   1.0),
+        (lm2596_id,    esp32_id,       "connected_to",   1.0),
+        (battery_id,   drv8825_id,     "connected_to",   1.0),
         (drv8825_id,   nema17_id,      "drives",         1.0),
 
         # I2C bus
-        (esp32_id,     i2c_id,         "controls",       1.0),
+        (esp32_id,     i2c_id,         "connected_to",   1.0),
         (mpu6050_id,   i2c_id,         "connected_to",   1.0),
         (vl53l0x_id,   i2c_id,         "connected_to",   1.0),
 
@@ -222,10 +222,10 @@ def seed():
         (nav_plan_id,   cmd_vel_id,    "publishes",      1.0),
 
         # ROS topic: subscribe
-        (motor_ctrl_id, cmd_vel_id,    "subscribes",     1.0),
-        (nav_plan_id,   odom_id,       "subscribes",     1.0),
-        (nav_plan_id,   scan_id,       "subscribes",     1.0),
-        (nav_plan_id,   imu_data_id,   "subscribes",     1.0),
+        (motor_ctrl_id, cmd_vel_id,    "subscribes_to",     1.0),
+        (nav_plan_id,   odom_id,       "subscribes_to",     1.0),
+        (nav_plan_id,   scan_id,       "subscribes_to",     1.0),
+        (nav_plan_id,   imu_data_id,   "subscribes_to",     1.0),
 
         # Runtime signals observed_in
         (nema17_id,    motor_rpm_id,   "observed_in",    1.0),

@@ -2,14 +2,10 @@ import { useState, useEffect } from 'react'
 import { Boxes, Network, Search, Activity, Cpu } from 'lucide-react'
 import { useProjectStore } from './stores/projectStore'
 import { LoadingSpinner } from './components/shared/LoadingSpinner'
+import WorkspaceTab from './components/workspace/WorkspaceTab'
+import ContextModelTab from './components/context-model/ContextModelTab'
 
-// Placeholders — Claude Code agents replace these
-const WorkspaceTab = () => (
-  <div className="p-8 text-solus-text-dim">Workspace — not built yet</div>
-)
-const ContextModelTab = () => (
-  <div className="p-8 text-solus-text-dim">Context Model — not built yet</div>
-)
+// Placeholders — teammates replace these when they merge
 const AgentTab = () => (
   <div className="p-8 text-solus-text-dim">Agent — not built yet</div>
 )
@@ -99,7 +95,11 @@ export default function App() {
 
         {/* Main content area */}
         <main className="flex-1 overflow-auto">
-          <ActiveComponent />
+          {activeTab === 'context' && currentProjectId ? (
+            <ContextModelTab projectId={currentProjectId} />
+          ) : (
+            <ActiveComponent />
+          )}
         </main>
       </div>
     </div>
