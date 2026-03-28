@@ -55,7 +55,7 @@ export default function App() {
           SOLUS
         </span>
         <div className="ml-auto flex items-center gap-2 [-webkit-app-region:no-drag]">
-          {loading.projects && <LoadingSpinner size="sm" />}
+          {loading.fetchProjects && <LoadingSpinner size="sm" />}
           {currentProject && (
             <span className="text-xs text-solus-text-dim font-mono">
               {currentProject.name}
