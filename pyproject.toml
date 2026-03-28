@@ -6,3 +6,6 @@ dependencies = ["fastapi", "uvicorn"]
 
 [tool.setuptools.packages.find]
 include = ["apps.*", "packages.*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

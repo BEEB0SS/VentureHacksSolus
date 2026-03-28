@@ -424,7 +424,7 @@ class ContextEngine:
         return adj
 
     def impact_analysis(self, entity_id: str, depth: int = 3) -> list[Entity]:
-        adj = self._build_adjacency(directed=True)
+        adj = self._build_adjacency(directed=False)
         visited: set[str] = set()
         queue: deque[tuple[str, int]] = deque([(entity_id, 0)])
         visited.add(entity_id)
