@@ -59,6 +59,8 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
   const carGroupRef = useRef<THREE.Group | null>(null)
   // Wheel meshes for rotation animation
   const wheelMeshesRef = useRef<THREE.Mesh[]>([])
+  const wheelBaseQuatsRef = useRef<THREE.Quaternion[]>([])
+  const wheelAngleRef = useRef(0)
 
   // Animation refs
   const animFrameRef = useRef<number>(0)
@@ -257,6 +259,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
       }
 
       wheelMeshesRef.current = wheels
+      wheelBaseQuatsRef.current = wheels.map(w => w.quaternion.clone())
 
       data.delete?.()
       model.delete?.()
@@ -288,6 +291,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
         wheels.push(wheel)
       }
       wheelMeshesRef.current = wheels
+      wheelBaseQuatsRef.current = wheels.map(w => w.quaternion.clone())
     }
   }, [modelUrl])
 
@@ -343,10 +347,16 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
         // Yaw: MuJoCo theta around Z → Three.js rotation around Y
         car.rotation.y = point.theta
 
-        // Spin wheels based on forward velocity
+        // Spin wheels around their axle (MuJoCo Y axis in carGroup local space)
         const wheelRotationDelta = (point.v_linear / 0.0325) * (deltaMs / 1000)
-        for (const wheel of wheelMeshesRef.current) {
-          wheel.rotation.z += wheelRotationDelta
+        wheelAngleRef.current += wheelRotationDelta
+        const spinQuat = new THREE.Quaternion()
+        spinQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), wheelAngleRef.current)
+        for (let i = 0; i < wheelMeshesRef.current.length; i++) {
+          const baseQuat = wheelBaseQuatsRef.current[i]
+          if (baseQuat) {
+            wheelMeshesRef.current[i].quaternion.copy(spinQuat).multiply(baseQuat)
+          }
         }
 
         // Update trajectory callback (throttled)
@@ -398,6 +408,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
     playTrajectory: (trajectory: TrajectoryPoint[]) => {
       trajectoryDataRef.current = trajectory
       currentFrameRef.current = 0
+      wheelAngleRef.current = 0
       playingRef.current = true
       // Reset car to start position (MuJoCo Z-up coords)
       const car = carGroupRef.current
@@ -417,6 +428,12 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
         car.position.x = 0
         car.position.z = 0
         car.rotation.y = 0
+      }
+      wheelAngleRef.current = 0
+      // Restore wheels to base orientation
+      for (let i = 0; i < wheelMeshesRef.current.length; i++) {
+        const baseQuat = wheelBaseQuatsRef.current[i]
+        if (baseQuat) wheelMeshesRef.current[i].quaternion.copy(baseQuat)
       }
     },
     isPlaying: () => playingRef.current,
