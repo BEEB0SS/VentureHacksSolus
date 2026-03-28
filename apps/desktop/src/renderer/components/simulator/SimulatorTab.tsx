@@ -91,51 +91,28 @@ export default function SimulatorTab() {
     setShowOptimizeInput(false)
   }, [])
 
-  const handlePlay = useCallback(async () => {
-    // Pick the trajectory to play
-    let traj: TrajectoryPoint[]
-
+  const handlePlay = useCallback(() => {
     if (optimResult) {
-      // Use the before/after trajectory based on toggle
-      traj = viewingOptimized ? optimResult.best_trajectory : optimResult.bad_trajectory
+      // After optimization: run with PID gains in live MuJoCo physics
+      const gains = viewingOptimized ? optimResult.best_gains : { kp: 0, ki: 0, kd: 0 }
+      viewerRef.current?.playWithPID(gains.kp, gains.ki, gains.kd, 1.0)
     } else {
-      // No optimization yet — run backend kinematic sim to get a trajectory
-      if (!currentProjectId) return
-      setBackendLoading(true)
-      setError(null)
-      try {
-        const res = await fetch(`${API_BASE}/api/projects/${currentProjectId}/simulator/run`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ n_steps: nSteps, left_speed: leftSpeed, right_speed: rightSpeed, dt, parameters: params }),
-        })
-        if (!res.ok) throw new Error(`Simulation failed: ${res.statusText}`)
-        const result = await res.json()
-        traj = result.trajectory
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Simulation failed')
-        setBackendLoading(false)
-        return
-      }
-      setBackendLoading(false)
+      // No optimization — run live MuJoCo with direct wheel speeds
+      viewerRef.current?.play(leftSpeed, rightSpeed)
     }
-
-    // Update charts
-    setTrajectory(traj.map((p: TrajectoryPoint & { step?: number }, i: number) => ({ ...p, step: i + 1 })))
-    setStepCount(traj.length)
-
-    // Animate in 3D viewer
-    viewerRef.current?.playTrajectory(traj)
+    setTrajectory([])
+    setStepCount(0)
     setPlaying(true)
-  }, [currentProjectId, nSteps, leftSpeed, rightSpeed, dt, params, optimResult, viewingOptimized])
+  }, [leftSpeed, rightSpeed, optimResult, viewingOptimized])
 
   const handlePause = useCallback(() => {
     viewerRef.current?.pause()
     setPlaying(false)
   }, [])
 
-  const handleTrajectoryUpdate = useCallback((traj: TrajectoryPoint[], currentIndex: number) => {
-    setStepCount(currentIndex + 1)
+  const handleTrajectoryUpdate = useCallback((traj: TrajectoryPoint[]) => {
+    setTrajectory([...traj])
+    setStepCount(traj.length)
   }, [])
 
   const handleSimComplete = useCallback(() => {
@@ -399,6 +376,7 @@ export default function SimulatorTab() {
             {/* 3D Viewer */}
             <MuJoCoViewer
               ref={viewerRef}
+              maxSteps={nSteps}
               playbackSpeed={playbackSpeed}
               onTrajectoryUpdate={handleTrajectoryUpdate}
               onSimComplete={handleSimComplete}
