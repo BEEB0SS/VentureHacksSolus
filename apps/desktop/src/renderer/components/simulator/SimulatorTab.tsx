@@ -240,13 +240,13 @@ export default function SimulatorTab() {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between h-14 px-8 border-b border-solus-border/40 shrink-0">
+      <div className="flex items-center justify-between px-8 py-4 border-b border-solus-border/40 shrink-0">
         <span className="text-[14px] font-medium text-solus-text tracking-wide">Simulator</span>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <button onClick={handleReset} className={btnGhost}>
             <RotateCcw size={14} /> Reset
           </button>
-          <div className="w-px h-5 bg-solus-border/30 mx-1" />
+          <div className="w-px h-6 bg-solus-border/30" />
           {playing ? (
             <button onClick={handlePause} className={`${btnBase} text-white bg-amber-600 hover:bg-amber-500`}>
               <Pause size={14} /> Pause
@@ -265,20 +265,20 @@ export default function SimulatorTab() {
           </button>
           {optimResult && (
             <>
-              <div className="w-px h-5 bg-solus-border/30 mx-1" />
+              <div className="w-px h-6 bg-solus-border/30" />
               <div className="flex items-center rounded-lg overflow-hidden border border-solus-border/30">
                 <button
                   onClick={() => { setViewingOptimized(false); setTrajectory(optimResult.bad_trajectory) }}
-                  className={`px-5 py-2 text-[13px] font-medium transition-colors cursor-pointer ${
+                  className={`px-6 py-2.5 text-[13px] font-medium transition-colors cursor-pointer ${
                     !viewingOptimized ? 'bg-red-500/15 text-red-400' : 'text-solus-text-muted hover:text-solus-text-dim'
                   }`}
                 >
                   Before
                 </button>
-                <div className="w-px h-4 bg-solus-border/30" />
+                <div className="w-px h-5 bg-solus-border/30" />
                 <button
                   onClick={() => { setViewingOptimized(true); setTrajectory(optimResult.best_trajectory) }}
-                  className={`px-5 py-2 text-[13px] font-medium transition-colors cursor-pointer ${
+                  className={`px-6 py-2.5 text-[13px] font-medium transition-colors cursor-pointer ${
                     viewingOptimized ? 'bg-emerald-500/15 text-emerald-400' : 'text-solus-text-muted hover:text-solus-text-dim'
                   }`}
                 >
