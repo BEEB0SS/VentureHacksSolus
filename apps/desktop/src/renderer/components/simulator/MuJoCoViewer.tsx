@@ -134,10 +134,11 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
       scene.add(grid)
 
       // Target line — the straight path the robot should follow (along +X)
-      const linePoints = [new THREE.Vector3(-0.5, 0.001, 0), new THREE.Vector3(3, 0.001, 0)]
-      const lineGeo = new THREE.BufferGeometry().setFromPoints(linePoints)
-      const lineMat = new THREE.LineBasicMaterial({ color: 0x6366f1, linewidth: 2, transparent: true, opacity: 0.5 })
-      const targetLine = new THREE.Line(lineGeo, lineMat)
+      // Using a flat box because WebGL ignores linewidth
+      const lineGeo = new THREE.BoxGeometry(3.5, 0.001, 0.01)
+      const lineMat = new THREE.MeshBasicMaterial({ color: 0x6366f1, transparent: true, opacity: 0.7 })
+      const targetLine = new THREE.Mesh(lineGeo, lineMat)
+      targetLine.position.set(1.25, 0.002, 0)  // centered along the path
       scene.add(targetLine)
 
       // Resize handler
