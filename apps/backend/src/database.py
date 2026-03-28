@@ -10,8 +10,10 @@ DB_PATH = os.environ.get("SOLUS_DB_PATH", str(Path.home() / ".solus" / "solus.db
 
 
 def get_connection() -> sqlite3.Connection:
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    # Re-read env var at connection time so tests can override SOLUS_DB_PATH per-test.
+    db_path = os.environ.get("SOLUS_DB_PATH", DB_PATH)
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
