@@ -1,0 +1,74 @@
+import { useState } from 'react'
+import { Boxes, Network, Search, Activity, Cpu } from 'lucide-react'
+
+// Placeholders — Claude Code agents replace these
+const WorkspaceTab = () => (
+  <div className="p-8 text-solus-text-dim">Workspace — not built yet</div>
+)
+const ContextModelTab = () => (
+  <div className="p-8 text-solus-text-dim">Context Model — not built yet</div>
+)
+const AgentTab = () => (
+  <div className="p-8 text-solus-text-dim">Agent — not built yet</div>
+)
+const LiveBenchTab = () => (
+  <div className="p-8 text-solus-text-dim">Live Bench — not built yet</div>
+)
+const SimulatorTab = () => (
+  <div className="p-8 text-solus-text-dim">Simulator — not built yet</div>
+)
+
+const TABS = [
+  { id: 'workspace', label: 'Workspace', icon: Boxes, component: WorkspaceTab },
+  { id: 'context', label: 'Context', icon: Network, component: ContextModelTab },
+  { id: 'agent', label: 'Agent', icon: Search, component: AgentTab },
+  { id: 'live-bench', label: 'Live Bench', icon: Activity, component: LiveBenchTab },
+  { id: 'simulator', label: 'Simulator', icon: Cpu, component: SimulatorTab },
+] as const
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState('workspace')
+  const ActiveComponent =
+    TABS.find((t) => t.id === activeTab)?.component || WorkspaceTab
+
+  return (
+    <div className="h-screen flex flex-col bg-solus-bg font-sans">
+      {/* Title bar — draggable on macOS */}
+      <div className="h-8 bg-solus-surface flex items-center px-4 border-b border-solus-border [-webkit-app-region:drag]">
+        <span className="text-xs font-mono text-solus-accent font-semibold tracking-wider">
+          SOLUS
+        </span>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
+        <nav className="w-14 bg-solus-surface border-r border-solus-border flex flex-col items-center py-3 gap-1">
+          {TABS.map((tab) => {
+            const Icon = tab.icon
+            const isActive = activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all cursor-pointer
+                  ${
+                    isActive
+                      ? 'bg-solus-accent/20 text-solus-accent-bright'
+                      : 'text-solus-text-muted hover:text-solus-text-dim hover:bg-solus-elevated'
+                  }`}
+                title={tab.label}
+              >
+                <Icon size={20} />
+              </button>
+            )
+          })}
+        </nav>
+
+        {/* Main content area */}
+        <main className="flex-1 overflow-auto">
+          <ActiveComponent />
+        </main>
+      </div>
+    </div>
+  )
+}
