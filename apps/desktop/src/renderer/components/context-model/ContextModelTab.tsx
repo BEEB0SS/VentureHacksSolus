@@ -111,39 +111,86 @@ export default function ContextModelTab({ projectId }: { projectId: string }) {
             target: nodeMap.get(r.target_entity_id)!,
           }));
 
+        // Cluster positions by entity type — hardware left, software right,
+        // interfaces center, signals bottom
+        const clusterX: Record<string, number> = {
+          electrical_part: width * 0.25,
+          mechanical_part: width * 0.15,
+          software_module: width * 0.75,
+          interface: width * 0.5,
+          runtime_signal: width * 0.5,
+          document: width * 0.75,
+          paper: width * 0.75,
+          issue: width * 0.35,
+          fix: width * 0.65,
+          simulation_asset: width * 0.25,
+          external_part_candidate: width * 0.85,
+        };
+        const clusterY: Record<string, number> = {
+          electrical_part: height * 0.35,
+          mechanical_part: height * 0.55,
+          software_module: height * 0.35,
+          interface: height * 0.45,
+          runtime_signal: height * 0.75,
+          document: height * 0.7,
+          paper: height * 0.7,
+          issue: height * 0.7,
+          fix: height * 0.7,
+          simulation_asset: height * 0.75,
+          external_part_candidate: height * 0.55,
+        };
+
         const simulation = d3
           .forceSimulation(nodes)
-          .force("link", d3.forceLink(links).id((d: any) => d.id).distance(80))
-          .force("charge", d3.forceManyBody().strength(-200))
-          .force("center", d3.forceCenter(width / 2, height / 2))
-          .force("collision", d3.forceCollide(20));
+          .force("link", d3.forceLink(links).id((d: any) => d.id).distance(90).strength(0.3))
+          .force("charge", d3.forceManyBody().strength(-150))
+          .force("clusterX", d3.forceX((d: any) => clusterX[d.entity_type] ?? width / 2).strength(0.4))
+          .force("clusterY", d3.forceY((d: any) => clusterY[d.entity_type] ?? height / 2).strength(0.4))
+          .force("collision", d3.forceCollide(24));
+
+        // Run simulation to completion, then render static positions
+        simulation.stop();
+        const totalTicks = 300;
+        for (let i = 0; i < totalTicks; i++) simulation.tick();
+
+        // Arrow marker for directed edges
+        g.append("defs").append("marker")
+          .attr("id", "arrowhead").attr("viewBox", "0 -4 8 8")
+          .attr("refX", 16).attr("refY", 0)
+          .attr("markerWidth", 6).attr("markerHeight", 6)
+          .attr("orient", "auto")
+          .append("path").attr("d", "M0,-3L7,0L0,3").attr("fill", "#525252");
 
         const link = g.append("g").selectAll("line").data(links).join("line")
-          .attr("stroke", "#525252").attr("stroke-width", 1.5).attr("stroke-opacity", 0.6);
+          .attr("stroke", "#525252").attr("stroke-width", 1.5).attr("stroke-opacity", 0.5)
+          .attr("marker-end", "url(#arrowhead)")
+          .attr("x1", (d: any) => d.source.x).attr("y1", (d: any) => d.source.y)
+          .attr("x2", (d: any) => d.target.x).attr("y2", (d: any) => d.target.y);
 
         const node = g.append("g").selectAll("circle").data(nodes).join("circle")
           .attr("r", 8)
           .attr("fill", (d: SimNode) => impactedIds.has(d.id) ? IMPACT_COLOR : (TYPE_COLORS[d.entity_type] || "#94a3b8"))
           .attr("stroke", "#171717").attr("stroke-width", 1.5).attr("cursor", "pointer")
+          .attr("cx", (d: SimNode) => d.x!).attr("cy", (d: SimNode) => d.y!)
           .on("click", (_event: MouseEvent, d: SimNode) => { setSelectedNode(d); })
           .call(
             d3.drag<SVGCircleElement, SimNode>()
-              .on("start", (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-              .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })
-              .on("end", (event, d) => { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }) as any
+              .on("start", (_event, d) => { d.fx = d.x; d.fy = d.y; })
+              .on("drag", (event, d) => {
+                d.fx = event.x; d.fy = event.y;
+                d3.select(event.sourceEvent.target).attr("cx", event.x).attr("cy", event.y);
+                // Update connected links and label
+                link.filter((l: any) => l.source.id === d.id).attr("x1", event.x).attr("y1", event.y);
+                link.filter((l: any) => l.target.id === d.id).attr("x2", event.x).attr("y2", event.y);
+                label.filter((l: SimNode) => l.id === d.id).attr("x", event.x).attr("y", event.y);
+              }) as any
           );
 
         const label = g.append("g").selectAll("text").data(nodes).join("text")
           .text((d: SimNode) => d.name)
           .attr("font-size", "10px").attr("font-family", "JetBrains Mono, monospace")
-          .attr("fill", "#a3a3a3").attr("dx", 12).attr("dy", 4);
-
-        simulation.on("tick", () => {
-          link.attr("x1", (d: any) => d.source.x).attr("y1", (d: any) => d.source.y)
-            .attr("x2", (d: any) => d.target.x).attr("y2", (d: any) => d.target.y);
-          node.attr("cx", (d: SimNode) => d.x!).attr("cy", (d: SimNode) => d.y!);
-          label.attr("x", (d: SimNode) => d.x!).attr("y", (d: SimNode) => d.y!);
-        });
+          .attr("fill", "#a3a3a3").attr("dx", 12).attr("dy", 4)
+          .attr("x", (d: SimNode) => d.x!).attr("y", (d: SimNode) => d.y!);
 
         cleanup = () => { simulation.stop(); };
       })
