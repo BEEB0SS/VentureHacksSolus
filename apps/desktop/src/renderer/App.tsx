@@ -12,9 +12,7 @@ const AgentTab = () => (
 const LiveBenchTab = () => (
   <div className="p-8 text-solus-text-dim">Live Bench — not built yet</div>
 )
-const SimulatorTab = () => (
-  <div className="p-8 text-solus-text-dim">Simulator — not built yet</div>
-)
+import SimulatorTab from './components/simulator/SimulatorTab'
 
 const TABS = [
   { id: 'workspace', label: 'Workspace', icon: Boxes, component: WorkspaceTab },
