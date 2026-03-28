@@ -50,6 +50,7 @@ class SolusAgent:
             "search_parts": self._handle_search_parts,
             "extract_values": self._handle_extract_values,
             "impact_analysis": self._handle_impact_analysis,
+            "diagnose_and_replace": self._handle_diagnose_and_replace,
             "plan": self._handle_plan,
         }
         handler = handlers.get(agent_query.query_type, self._handle_general)
@@ -429,6 +430,136 @@ Be specific about signal paths, interfaces, and code changes needed."""
         return AgentResponse(query_id=query.id, response_text=fallback,
             structured_data={"impacted_entities": impacted_entities, "memory_hits": context.get("memory_hits", [])},
             sources=["context_model", "fallback"], confidence=0.3)
+
+    async def _handle_diagnose_and_replace(self, query: AgentQuery) -> AgentResponse:
+        """Combined flow: run impact analysis, then automatically search for replacement parts."""
+        # Step 1: Run impact analysis
+        impact_response = await self._handle_impact_analysis(query)
+        impact_text = impact_response.response_text
+        impacted_entities = impact_response.structured_data.get("impacted_entities", [])
+
+        # Step 2: Use Gemini to extract what component needs replacing from the impact analysis
+        context = self._build_context(query)
+        context_str = self._format_context_for_prompt(context)
+
+        extract_prompt = (
+            "You are a component replacement assistant. Given the impact analysis below "
+            "and the user's original problem, determine what replacement component to search for.\n\n"
+            "Output ONLY valid JSON:\n"
+            '{"search_query": "specific component search terms", '
+            '"reason": "why this component needs replacing", '
+            '"constraints": "voltage, current, interface, or form factor constraints from the project"}'
+        )
+        user_prompt = (
+            f"User's Problem: {query.query}\n\n"
+            f"Impact Analysis:\n{impact_text}\n\n"
+            f"Project Context:\n{context_str}"
+        )
+
+        search_query = query.query  # fallback
+        replacement_reason = ""
+        gemini_response = await self._call_gemini(extract_prompt, user_prompt)
+        if gemini_response:
+            try:
+                text = gemini_response.strip()
+                if text.startswith("```"):
+                    text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+                    text = text.rsplit("```", 1)[0]
+                data = json.loads(text)
+                search_query = data.get("search_query", query.query)
+                replacement_reason = data.get("reason", "")
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+        # Step 3: Search for replacement parts
+        try:
+            search_results = search_components(search_query)
+        except ComponentSearchError:
+            search_results = []
+
+        # Step 4: Rank candidates if we have results
+        part_candidates = []
+        parts_summary = ""
+        if search_results:
+            ranking = await self._rank_candidates(context_str, search_query, search_results)
+            ranked_products = ranking.get("ranked_products", [])
+            parts_summary = ranking.get("summary", "")
+
+            for rp in sorted(ranked_products, key=lambda x: x.get("relevance_score", 0), reverse=True):
+                idx = rp.get("index", 0)
+                if idx >= len(search_results):
+                    continue
+                mp = search_results[idx]
+                pricing = mp.get("pricing", [])
+                price_range = ""
+                if pricing:
+                    prices = [p["unit_price"] for p in pricing if p.get("unit_price")]
+                    if prices:
+                        price_range = f"${min(prices):.2f} - ${max(prices):.2f}" if len(prices) > 1 else f"${prices[0]:.2f}"
+
+                pc = PartCandidate(
+                    name=mp.get("description", mp.get("manufacturer_part_number", "")),
+                    manufacturer=mp.get("manufacturer", ""),
+                    manufacturer_part_number=mp.get("manufacturer_part_number", ""),
+                    distributor_part_number=mp.get("distributor_part_number", ""),
+                    specs=mp.get("parameters", {}),
+                    datasheet_url=mp.get("datasheet_url", ""),
+                    product_url=mp.get("product_url", ""),
+                    photo_url=mp.get("photo_url", ""),
+                    price_range=price_range,
+                    unit_price=float(mp.get("unit_price", 0)),
+                    quantity_available=int(mp.get("quantity_available", 0)),
+                    category=mp.get("category", ""),
+                    source_url=mp.get("product_url", ""),
+                    relevance_score=rp.get("relevance_score", 0.5),
+                    compatibility_notes=rp.get("compatibility_notes", ""),
+                )
+                part_candidates.append(pc)
+
+        # Step 5: Build combined response
+        response_lines = [
+            "## Impact Analysis",
+            "",
+            impact_text,
+            "",
+        ]
+
+        if replacement_reason:
+            response_lines.append(f"## Replacement Needed")
+            response_lines.append("")
+            response_lines.append(replacement_reason)
+            response_lines.append("")
+
+        if part_candidates:
+            response_lines.append(f"## Replacement Candidates (searched: \"{search_query}\")")
+            response_lines.append("")
+            if parts_summary:
+                response_lines.append(parts_summary)
+                response_lines.append("")
+            for i, pc in enumerate(part_candidates, 1):
+                response_lines.append(
+                    f"{i}. **{pc.manufacturer_part_number}** by {pc.manufacturer} — "
+                    f"${pc.unit_price:.2f}, {pc.quantity_available:,} in stock "
+                    f"(compatibility: {pc.relevance_score:.0%})"
+                )
+                if pc.compatibility_notes:
+                    response_lines.append(f"   {pc.compatibility_notes}")
+        elif search_results:
+            response_lines.append("## Replacement search returned results but ranking failed.")
+        else:
+            response_lines.append(f"## No replacement parts found for \"{search_query}\"")
+
+        return AgentResponse(
+            query_id=query.id,
+            response_text="\n".join(response_lines),
+            structured_data={
+                "impacted_entities": impacted_entities,
+                "part_candidates": [vars(pc) for pc in part_candidates],
+                "memory_hits": context.get("memory_hits", []),
+            },
+            sources=["gemini", "web_search", "context_model", "impact_analysis"],
+            confidence=0.85 if part_candidates else 0.5,
+        )
 
     async def _handle_plan(self, query: AgentQuery) -> AgentResponse:
         context = self._build_context(query)

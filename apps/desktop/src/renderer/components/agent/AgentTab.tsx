@@ -18,6 +18,7 @@ const QUERY_TYPES = [
   { value: "search_parts", label: "Find Parts", description: "Component recommendations" },
   { value: "extract_values", label: "Extract Values", description: "Pull specs from docs" },
   { value: "impact_analysis", label: "Impact", description: "Explain change impact" },
+  { value: "diagnose_and_replace", label: "Diagnose & Fix", description: "Impact analysis + find replacement parts" },
   { value: "plan", label: "Plan", description: "Plan integration work" },
 ] as const;
 
@@ -64,7 +65,7 @@ export default function AgentTab({ projectId }: AgentTabProps) {
 
     // For impact_analysis, include the selected entity ID
     const contextEntityIds: string[] = [];
-    if (queryType === "impact_analysis" && selectedEntityId) {
+    if ((queryType === "impact_analysis" || queryType === "diagnose_and_replace") && selectedEntityId) {
       contextEntityIds.push(selectedEntityId);
     }
 
@@ -160,6 +161,7 @@ export default function AgentTab({ projectId }: AgentTabProps) {
                   { text: "My motor keeps stalling at low RPM", type: "debug" },
                   { text: "Recommend a motor driver compatible with NEMA17", type: "search_parts" },
                   { text: "What happens if I swap the DRV8825?", type: "general" },
+                  { text: "The DRV8825 is failing — find a replacement", type: "diagnose_and_replace" },
                 ].map((suggestion) => (
                   <button
                     key={suggestion.text}
@@ -219,7 +221,7 @@ export default function AgentTab({ projectId }: AgentTabProps) {
             ))}
           </div>
           {/* Entity picker — shown only for impact_analysis */}
-          {queryType === "impact_analysis" && entities.length > 0 && (
+          {(queryType === "impact_analysis" || queryType === "diagnose_and_replace") && entities.length > 0 && (
             <div className="mb-2">
               <select
                 value={selectedEntityId}
