@@ -8,6 +8,13 @@ it and logs a warning. The /api/health endpoint reports which routers are
 currently loaded.
 """
 
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env from backend directory
+load_dotenv(Path(__file__).parent.parent / ".env")
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import init_db

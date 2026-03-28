@@ -37,7 +37,7 @@ class SolusAgent:
         if GEMINI_AVAILABLE and api_key:
             try:
                 genai.configure(api_key=api_key)
-                self._gemini_model = genai.GenerativeModel("gemini-2.0-flash")
+                self._gemini_model = genai.GenerativeModel("gemini-2.5-flash")
             except Exception:
                 self._gemini_model = None
 
