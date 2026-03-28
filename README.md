@@ -1,33 +1,174 @@
-# VentureHacksSolus
+# Solus — Robotics Context Model
 
-# Solus — Robotics Development Workspace
+A development workspace that builds a **living knowledge graph** of your entire robot system — hardware, software, interfaces, telemetry, and documents — then uses that graph to detect change impact, debug across domains, and reuse team knowledge.
 
-A team robotics development workspace centered on a **Robotics Context Model** that continuously ingests design, code, documents, runtime telemetry, and simulation state, then uses that shared context to help teams plan, detect change impact, debug, and reuse knowledge.
-
----
-
-## Team & Roles
-
-| Person | Role | Demo Flows | Branch |
-|--------|------|-----------|--------|
-| **Pratham (Lead)** | Foundation + Demo A | Change Propagation | `feature/core-change-propagation` |
-| **Teammate 1** | Demo B + Demo C | Live Bench + Team Memory | `feature/livebench-memory` |
-| **Teammate 2** | Demo D + Demo E | AI Knowledge + Simulator | `feature/ai-knowledge-simulator` |
-| **Teammate 3** | App Shell + Integration | Store, shared UI, wiring, polish | `feature/shell-integration` |
+**The core insight:** Robotics engineers spend most of their time making systems work together, not building functionality. No existing tool understands the robot as a full system. Solus connects the dots across KiCad schematics, GitHub repos, Onshape assemblies, runtime telemetry, and team memory into one queryable graph.
 
 ---
 
-## Getting Started (Everyone Does This)
+## Architecture
 
-### 1. Clone the repo
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                   SOLUS DESKTOP APP (Electron + React)                   │
+│                                                                         │
+│  ┌─────────────┐ ┌────────────────┐ ┌──────────────┐ ┌─────────────┐  │
+│  │ Workspace   │ │ Context Model  │ │    Agent     │ │  Simulator  │  │
+│  │ Tab         │ │ Tab            │ │    Tab       │ │  Tab        │  │
+│  │             │ │                │ │ (3-Panel)    │ │             │  │
+│  │ Sources     │ │ D3 Force Graph │ │ Mode│Query│Mem│ │ Parameters  │  │
+│  │ Sync        │ │ Impact BFS    │ │ Sel │Work │Pan│ │ Trajectory  │  │
+│  │ Changes     │ │ AI Explanation │ │ Hist│space│el │ │ PID Tuning  │  │
+│  └──────┬──────┘ └───────┬────────┘ └──────┬──────┘ └──────┬──────┘  │
+└─────────┼────────────────┼─────────────────┼───────────────┼──────────┘
+          │           HTTP REST API          │               │
+          ▼                ▼                 ▼               ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     FASTAPI BACKEND (Python 3.11+)                      │
+│                                                                         │
+│  ┌───────────────┐ ┌──────────────┐ ┌──────────────┐ ┌─────────────┐  │
+│  │ Context Engine│ │ Solus Agent  │ │  Discovery   │ │  Simulator  │  │
+│  │               │ │              │ │  Engine      │ │             │  │
+│  │ Graph CRUD    │ │ 6 Query Types│ │              │ │ Diff. Drive │  │
+│  │ BFS Impact    │ │ Gemini AI    │ │ 3 Analyzers: │ │ Kinematics  │  │
+│  │ Snapshot+Diff │ │ Fallback     │ │ Python AST   │ │ PID Optimize│  │
+│  │ Change Track  │ │ Chain        │ │ KiCad Netlist│ │ AI Tuning   │  │
+│  └───────┬───────┘ └──────┬───────┘ │ Config File  │ └─────────────┘  │
+│          │                │         └──────────────┘                   │
+│  ┌───────┴────────────────┴────────────────────────────────────────┐   │
+│  │                        CONNECTORS                               │   │
+│  │  GitHub ──── Onshape ──── KiCad ──── PDF                       │   │
+│  │  (local+API)  (REST API)  (S-expr)   (PyPDF2)                  │   │
+│  └─────────────────────────┬───────────────────────────────────────┘   │
+│                             │                                          │
+│  ┌──────────────────────────┴──────────────────────────────────────┐   │
+│  │  SQLite: entities, relations, snapshots, changes, memory, ...  │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────┘
+          │                    │                    │
+          ▼                    ▼                    ▼
+   Google Gemini         GitHub API           Onshape API
+   (AI reasoning)        (repo tree +         (assembly +
+                          file contents)       parts + mass)
+```
+
+---
+
+## The Robotics Context Model
+
+The core data structure is a **typed, weighted graph** where nodes are robot components and edges are relationships between them.
+
+**14 Entity Types:**
+Electrical Part, Software Module, Mechanical Part, Interface, Runtime Signal, Document, Issue, Fix, Project, Team Member, Paper, Run, Simulation Asset, External Part Candidate
+
+**13 Relation Types** (with confidence scores):
+`connected_to`, `depends_on`, `configured_by`, `documented_by`, `publishes`, `subscribes_to`, `drives`, `reads_from`, `changed_by`, `impacts`, `observed_in`, `resolved_by`, `similar_to`
+
+**What this enables:**
+- "I swapped a chip on the PCB" → BFS traversal → "These 3 software modules and 2 interfaces are affected"
+- "Motor speed is anomalous" → reverse causal trace → "The IMU lost I2C bus lock"
+- "I need a motor driver for NEMA17, 12V, microstepping" → grounded recommendation from your system constraints
+
+---
+
+## Key Features
+
+### Change Propagation
+Sync a KiCad schematic or Onshape assembly → snapshot diff detects what changed → BFS impact analysis traces through the graph → AI explains what to update with per-component action items.
+
+### Auto-Relation Discovery
+Three analyzers run independently on your codebase:
+- **Python AST** — parses imports (`depends_on`), ROS topic pub/sub (`publishes`/`subscribes_to`), hardware I2C addresses (`reads_from`)
+- **KiCad Netlist** — shared signal nets → `connected_to`, driver-motor nets → `drives` (power nets filtered)
+- **Config Files** — YAML/JSON/TOML entity references → `configured_by`
+
+Results merge with cross-modal confidence boosting (if two analyzers independently find the same relation, confidence increases).
+
+### AI Agent (6 Query Modes)
+| Mode | Color | What it does |
+|------|-------|-------------|
+| General | Indigo | Answer using full project context |
+| Debug | Amber | Diagnose issues, suggest fixes |
+| Find Parts | Cyan | Component recommendations with compatibility reasoning |
+| Extract Values | Green | Pull parameters from papers/datasheets with confidence |
+| Impact Analysis | Red | Explain impact of design changes per-component |
+| Plan | Purple | Integration planning assistance |
+
+Gemini fallback chain: `gemini-2.5-flash` → `gemini-2.0-flash` → `gemini-2.0-flash-lite` → context summary (no AI).
+
+### Semantic Memory
+TF-IDF cosine similarity search over issues, fixes, document chunks, and reference notes. "This looks like an issue Person X had on March 15" — institutional knowledge that scales.
+
+### Simulator
+Differential drive kinematics with PID optimization and sim-vs-runtime comparison. "Simulated turn radius is 15cm but Live Bench shows 22cm."
+
+---
+
+## Data Connectors
+
+| Connector | Source | Auth | What it pulls |
+|-----------|--------|------|---------------|
+| **GitHub** (local) | Local directory | None | File tree, ROS packages, classification by extension |
+| **GitHub** (API) | Remote repo | PAT (`GITHUB_TOKEN`) | Same classification via Git Trees API + file content fetch |
+| **Onshape** | Cloud CAD | HTTP Basic (`ONSHAPE_ACCESS_KEY` + `SECRET_KEY`) | Assembly tree, parts metadata, materials, mass properties, mate connectors |
+| **KiCad** | Local files | None | S-expression parsing of `.kicad_sch`/`.kicad_pcb`, components, nets, footprints |
+| **PDF** | Local files | None | Text extraction + chunking into ~500 word segments for memory store |
+
+All connectors return a **snapshot dict** → `ContextEngine.create_snapshot()` → diff against previous → change events.
+
+---
+
+## API Surface (25 endpoints)
+
+### Core (`routes_core.py`)
+```
+POST   /api/projects                              Create project
+GET    /api/projects                              List projects
+GET    /api/projects/{id}                         Get project
+POST   /api/projects/{id}/team                    Add team member
+GET    /api/projects/{id}/team                    List team members
+POST   /api/projects/{id}/entities                Create entity
+GET    /api/projects/{id}/entities                List entities (filter by type)
+POST   /api/projects/{id}/relations               Create relation
+GET    /api/projects/{id}/graph                   Full graph (all entities + relations)
+GET    /api/projects/{id}/impact/{entity_id}      BFS impact analysis
+POST   /api/projects/{id}/sources                 Add source connection
+GET    /api/projects/{id}/sources                 List sources
+POST   /api/projects/{id}/sources/{sid}/sync      Sync source → snapshot → diff
+GET    /api/projects/{id}/changes                 List change events
+```
+
+### Agent + Simulator (`routes_agent.py`)
+```
+POST   /api/projects/{id}/agent/query             AI query (6 types)
+POST   /api/projects/{id}/memory                  Store memory item
+GET    /api/projects/{id}/memory/search            Semantic search
+POST   /api/projects/{id}/simulator/run            Run simulation
+GET    /api/projects/{id}/simulator/state          Current sim state
+POST   /api/projects/{id}/simulator/compare        Sim vs runtime comparison
+POST   /api/projects/{id}/simulator/run-pid        PID tuning simulation
+POST   /api/projects/{id}/simulator/optimize       Auto-optimize PID
+POST   /api/projects/{id}/simulator/ai-tune        AI-driven MJCF tuning
+POST   /api/projects/{id}/simulator/apply-tune     Record tuning changes
+```
+
+### Discovery (`routes_discovery.py`)
+```
+POST   /api/projects/{id}/discover                Auto-discover relations
+```
+
+---
+
+## Getting Started
+
+### 1. Clone and install
 
 ```bash
 git clone git@github.com:BEEB0SS/VentureHacksSolus.git
 cd VentureHacksSolus
 ```
 
-### 2. Set up the backend
-
+**Backend:**
 ```bash
 cd apps/backend
 python3 -m venv .venv
@@ -37,15 +178,36 @@ python3 -c "from src.database import init_db; init_db()"
 cd ../..
 ```
 
-### 3. Set up the frontend
-
+**Frontend:**
 ```bash
 cd apps/desktop
 pnpm install
 cd ../..
 ```
 
-### 4. Verify everything works
+### 2. Set environment variables
+
+```bash
+# Required for AI features (optional — fallback mode works without)
+export GEMINI_API_KEY="your-gemini-key"
+
+# Required for GitHub API connector (optional — local connector works without)
+export GITHUB_TOKEN="ghp_your-token"
+
+# Required for Onshape connector (optional)
+export ONSHAPE_ACCESS_KEY="your-access-key"
+export ONSHAPE_SECRET_KEY="your-secret-key"
+```
+
+### 3. Seed demo data
+
+```bash
+cd apps/backend
+python scripts/seed_demo.py
+cd ../..
+```
+
+### 4. Run
 
 **Terminal 1 — Backend:**
 ```bash
@@ -58,226 +220,103 @@ uvicorn src.main:app --reload --port 8000
 cd apps/desktop && pnpm run dev:web
 ```
 
-Open http://localhost:5173 — you should see the dark Solus UI with 5 sidebar tabs.
-
-### 5. Create your branch
-
-```bash
-git checkout -b feature/YOUR-BRANCH-NAME
-```
-
-Branch names are listed in the table above.
-
-### 6. Start Claude Code
-
-```bash
-cd /path/to/VentureHacksSolus
-claude
-```
-
-Then paste the prompt from your prompt file in `claude-prompts/`. See below.
+Open http://localhost:5173
 
 ---
 
-## Claude Code Prompts
-
-Each person has a prompt file in `claude-prompts/`. When you open Claude Code, paste the contents of your file:
-
-| Person | Prompt File | Brief (full spec) |
-|--------|-------------|-------------------|
-| Pratham | `claude-prompts/pratham-prompt.md` | `team-briefs/YOU_LEAD_DEMO_A.md` |
-| Teammate 1 | `claude-prompts/teammate1-prompt.md` | `team-briefs/TEAMMATE_1_LIVEBENCH_MEMORY.md` |
-| Teammate 2 | `claude-prompts/teammate2-prompt.md` | `team-briefs/TEAMMATE_2_AI_SIMULATOR.md` |
-| Teammate 3 | `claude-prompts/teammate3-prompt.md` | `team-briefs/TEAMMATE_3_SHELL_INTEGRATION.md` |
-
-Claude Code can see every file in the repo, so it will read `PRODUCT_CONTEXT.md`, `models.py`, `database.py`, and your team brief automatically when you tell it to.
-
----
-
-## How We Work Together (Step by Step)
-
-### Phase 1: Everyone starts simultaneously (Hour 0)
-
-All 4 people clone, set up, branch, and start Claude Code at the same time.
-
-**What each person does immediately:**
-
-- **Pratham:** Build `context_engine.py` first (everyone depends on this), then KiCad/GitHub connectors, then `routes_core.py`, then the Workspace and Context Model frontend tabs.
-
-- **Teammate 1:** Build `live_bench.py` (no dependencies on anyone), then `routes_livebench.py`, then the Live Bench tab and Agent chat tab.
-
-- **Teammate 2:** Build `memory/memory_store.py` first (no dependencies), then `agent/solus_agent.py`, then `simulator/mujoco_wrapper.py`, then `routes_agent.py`, then Simulator tab.
-
-- **Teammate 3:** Build `stores/projectStore.ts` first (everyone's frontend depends on this), then shared UI components, then `main.py` wiring, then hooks.
-
-**Nobody is blocked.** Everyone has files with zero dependencies they can start on immediately. When someone needs another person's code (e.g. Teammate 2 needs `context_engine.py`), they code against the interface described in `models.py` and it resolves after merging.
-
-### Phase 2: First merges (Hour 2-3)
-
-**Pratham merges first** — the context engine is the foundation.
-
-```bash
-git add -A
-git commit -m "Context engine + connectors + core routes + workspace/context tabs"
-git push origin feature/core-change-propagation
-# Open PR on GitHub → merge to main
-```
-
-**Teammate 3 merges second** — the Zustand store and shared components.
-
-```bash
-git add -A
-git commit -m "Zustand store + shared UI components + main.py wiring"
-git push origin feature/shell-integration
-# Open PR → merge to main
-```
-
-**Everyone pulls after each merge:**
-
-```bash
-git checkout feature/YOUR-BRANCH
-git pull origin main
-git rebase main
-# Fix any conflicts (there shouldn't be any)
-```
-
-### Phase 3: Remaining merges (Hour 3-4)
-
-**Teammate 1 merges** — live bench + agent chat + issues/fixes.
-
-**Teammate 2 merges** — AI agent + memory + simulator.
-
-Same workflow: push, PR, merge, everyone pulls.
-
-### Phase 4: Integration + polish (Hour 4-5)
-
-- Teammate 3 does a final pass: updates `App.tsx` imports, fixes any broken wiring
-- Everyone tests their demo flow end-to-end
-- Fix any cross-cutting bugs together
-
----
-
-## Merge Order (Follow This)
-
-```
-1. Pratham          → context engine, connectors, core routes, workspace/context tabs
-2. Teammate 3       → store, shared components, main.py
-3. Teammate 1       → live bench, agent chat, issues/fixes routes
-4. Teammate 2       → AI agent, memory, simulator, agent routes
-5. Teammate 3 again → final integration pass, polish
-```
-
----
-
-## File Ownership (Who Touches What)
-
-This is how we avoid merge conflicts. **Never edit a file you don't own.**
-
-### Pratham owns:
-```
-apps/backend/src/context_engine.py
-apps/backend/src/connectors/github_connector.py
-apps/backend/src/connectors/kicad_connector.py
-apps/backend/src/connectors/onshape_connector.py
-apps/backend/src/routes_core.py
-apps/desktop/src/renderer/components/workspace/WorkspaceTab.tsx
-apps/desktop/src/renderer/components/context-model/ContextModelTab.tsx
-```
-
-### Teammate 1 owns:
-```
-apps/backend/src/live_bench.py
-apps/backend/src/routes_livebench.py
-apps/desktop/src/renderer/components/live-bench/LiveBenchTab.tsx
-apps/desktop/src/renderer/components/agent/AgentTab.tsx
-```
-
-### Teammate 2 owns:
-```
-apps/backend/src/agent/solus_agent.py
-apps/backend/src/memory/memory_store.py
-apps/backend/src/connectors/pdf_connector.py
-apps/backend/src/simulator/mujoco_wrapper.py
-apps/backend/src/routes_agent.py
-apps/desktop/src/renderer/components/simulator/SimulatorTab.tsx
-```
-
-### Teammate 3 owns:
-```
-apps/backend/src/main.py
-apps/desktop/src/renderer/stores/projectStore.ts
-apps/desktop/src/renderer/App.tsx
-apps/desktop/src/renderer/components/shared/*
-apps/desktop/src/renderer/hooks/*
-scripts/seed_demo.py
-```
-
-### Nobody edits (shared contracts — read only):
-```
-packages/shared_types/src/models.py
-apps/backend/src/database.py
-PRODUCT_CONTEXT.md
-```
-
----
-
-## How Routes Work (No Conflicts on main.py)
-
-Each person creates their own route file using FastAPI's `APIRouter`:
+## Project Structure
 
 ```
 apps/backend/src/
-├── routes_core.py        ← Pratham
-├── routes_livebench.py   ← Teammate 1
-├── routes_agent.py       ← Teammate 2
-└── main.py               ← Teammate 3 (imports all routers)
+├── main.py                              FastAPI app, router wiring
+├── database.py                          SQLite schema (16 tables)
+├── context_engine.py                    Graph CRUD, BFS impact, snapshot/diff
+├── discovery_engine.py                  Auto-discovery orchestrator
+├── routes_core.py                       14 core endpoints
+├── routes_agent.py                      10 agent/simulator endpoints
+├── routes_discovery.py                  1 discovery endpoint
+├── connectors/
+│   ├── github_connector.py              Local repo walker
+│   ├── github_api_connector.py          GitHub REST API
+│   ├── onshape_api_connector.py         Onshape CAD API
+│   ├── kicad_connector.py               KiCad S-expression parser
+│   └── pdf_connector.py                 PDF text extraction
+├── agent/
+│   └── solus_agent.py                   Gemini query router (6 types)
+├── memory/
+│   └── memory_store.py                  TF-IDF semantic search
+├── simulator/
+│   ├── mujoco_wrapper.py                Differential drive kinematics
+│   ├── pid_optimizer.py                 PID tuning
+│   └── ai_tuner.py                      Gemini MJCF tuning
+└── analyzers/
+    ├── python_ast_analyzer.py           Import/topic/address discovery
+    ├── kicad_netlist_analyzer.py         Shared net discovery
+    └── config_file_analyzer.py          Config reference discovery
+
+apps/desktop/src/renderer/
+├── App.tsx                              Main app, 4-tab navigation
+├── components/
+│   ├── workspace/WorkspaceTab.tsx       Project + source management
+│   ├── workspace/AddSourceModal.tsx     Connect sources by URL
+│   ├── context-model/ContextModelTab.tsx D3 force graph + AI impact panel
+│   ├── agent/AgentTab.tsx               3-panel query interface
+│   ├── agent/MessageBubble.tsx          ResponseDocument renderer
+│   ├── agent/MemoryPanel.tsx            Memory search sidebar
+│   ├── simulator/SimulatorTab.tsx       Parameters + trajectory + PID
+│   └── shared/                          Card, Modal, LoadingSpinner, etc.
+├── stores/projectStore.ts               Zustand state management
+└── hooks/useApi.ts                      Fetch wrapper
+
+packages/shared_types/src/
+└── models.py                            All dataclasses + enums (single source of truth)
 ```
-
-Example route file:
-```python
-from fastapi import APIRouter
-router = APIRouter(prefix="/api")
-
-@router.get("/projects/{id}/graph")
-async def get_graph(id: str):
-    ...
-```
-
-Teammate 3's `main.py` wires them together:
-```python
-app.include_router(core_router)
-app.include_router(livebench_router)
-app.include_router(agent_router)
-```
-
----
-
-## The 5 Demo Flows We're Building
-
-### Demo A: Change Propagation (Pratham)
-KiCad PCB change → context model detects diff → impact analysis shows what software breaks → AI explains how
-
-### Demo B: Live Bench (Teammate 1)
-Simulated telemetry streaming → real-time dashboard → anomaly detected → AI diagnoses using context + memory
-
-### Demo C: Team Memory (Teammate 1)
-Issue logged + fixed → later similar issue appears → system retrieves past solution → suggests reuse
-
-### Demo D: External Knowledge (Teammate 2)
-Ask for components under constraints → AI recommends with compatibility reasoning → extract values from papers
-
-### Demo E: Simulator Loop (Teammate 2)
-Design parameter changes → simulation runs → compare sim vs runtime → show discrepancies
 
 ---
 
 ## Tech Stack
 
-- **Desktop:** Electron + React + TypeScript + Tailwind CSS v4
-- **Backend:** Python FastAPI (localhost:8000, proxied through Vite)
-- **Database:** SQLite
-- **AI:** Google Gemini API (`GEMINI_API_KEY` env var)
-- **Telemetry:** WebSocket streaming
-- **State:** Zustand
-- **Charts:** Recharts
-- **Graph Viz:** D3 force-directed layout
+| Layer | Technology |
+|-------|-----------|
+| Desktop shell | Electron |
+| Frontend | React 18, TypeScript, D3.js, Recharts |
+| Styling | Inline styles, JetBrains Mono, dark developer-tool aesthetic |
+| State | Zustand |
+| Backend | Python 3.11+, FastAPI |
+| Database | SQLite (WAL mode, foreign keys, cascade deletes) |
+| AI | Google Gemini (2.5-flash → 2.0-flash → 2.0-flash-lite fallback) |
+| Semantic search | TF-IDF cosine similarity (pure Python, no ML deps) |
+| Simulation | Differential drive kinematics (pure math, no MuJoCo dep) |
+
+---
+
+## Environment Variables
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `GEMINI_API_KEY` | No (fallback works) | Google Gemini AI for agent queries |
+| `GITHUB_TOKEN` | No (local connector works) | GitHub API for remote repo sync |
+| `ONSHAPE_ACCESS_KEY` | No | Onshape API access key |
+| `ONSHAPE_SECRET_KEY` | No | Onshape API secret key |
+| `SOLUS_DB_PATH` | No (default: `~/.solus/solus.db`) | SQLite database location |
+| `SOLUS_DISCOVERY_ENABLED` | No (default: `true`) | Enable/disable auto-discovery |
+| `VITE_API_URL` | No (default: `http://localhost:8000/api`) | Frontend API base URL |
+
+---
+
+## Demo Flows
+
+### Demo A: Change Propagation
+KiCad chip swap → snapshot diff → BFS impact analysis → AI explains per-component actions
+
+### Demo B: Live Bench Monitoring
+Simulated telemetry → real-time dashboard → anomaly detection → AI diagnosis with context + memory
+
+### Demo C: Team Memory Reuse
+Issue logged → similar issue later → semantic search finds past fix → suggests reuse
+
+### Demo D: External Knowledge
+"I need a motor driver for NEMA17, 12V, microstepping, Teensy 4.1" → grounded recommendation with wiring for your system
+
+### Demo E: Simulator Loop
+Parameter change → differential drive simulation → compare against runtime telemetry → flag discrepancies
