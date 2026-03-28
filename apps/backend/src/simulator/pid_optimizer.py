@@ -20,7 +20,7 @@ def pid_step(error: float, prev_error: float, integral: float,
 
 def simulate_with_pid(kp: float, ki: float, kd: float,
                        target_speed: float = 1.0, n_steps: int = 200,
-                       dt: float = 0.01, initial_theta: float = 0.1,
+                       dt: float = 0.01, initial_theta: float = 0.4,
                        wheel_base: float = 0.17, wheel_radius: float = 0.0325) -> list[dict]:
     """Run a differential drive simulation with PID heading correction.
 
@@ -86,7 +86,7 @@ def straight_line_score(trajectory: list[dict]) -> float:
 
 
 def optimize_pid(n_trials: int = 100, n_steps: int = 200, dt: float = 0.01,
-                  target_speed: float = 1.0, initial_theta: float = 0.1,
+                  target_speed: float = 1.0, initial_theta: float = 0.4,
                   bounds: dict | None = None) -> dict:
     """Find optimal PID gains via random search.
 
