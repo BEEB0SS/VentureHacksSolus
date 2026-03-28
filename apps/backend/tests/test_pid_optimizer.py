@@ -47,10 +47,10 @@ class TestSimulateWithPID:
         from apps.backend.src.simulator.pid_optimizer import simulate_with_pid, straight_line_score
         # Bad PID: no correction at all
         bad_traj = simulate_with_pid(kp=0.0, ki=0.0, kd=0.0, target_speed=1.0,
-                                      n_steps=200, dt=0.01, initial_theta=0.1, seed=42)
+                                      n_steps=200, dt=0.01, initial_theta=0.1)
         # Good PID: strong proportional correction
         good_traj = simulate_with_pid(kp=3.0, ki=0.1, kd=0.05, target_speed=1.0,
-                                       n_steps=200, dt=0.01, initial_theta=0.1, seed=42)
+                                       n_steps=200, dt=0.01, initial_theta=0.1)
         bad_score = straight_line_score(bad_traj)
         good_score = straight_line_score(good_traj)
         assert good_score < bad_score  # lower = better

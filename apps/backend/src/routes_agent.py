@@ -84,14 +84,14 @@ class RunPIDReq(BaseModel):
     target_speed: float = 1.0
     n_steps: int = 500
     dt: float = 0.01
-    initial_theta: float = 0.4
+    initial_theta: float = 0.1
 
 class OptimizePIDReq(BaseModel):
     n_trials: int = 100
     n_steps: int = 200
     dt: float = 0.01
     target_speed: float = 1.0
-    initial_theta: float = 0.4
+    initial_theta: float = 0.1
     bounds: Optional[dict[str, list[float]]] = None
 
 

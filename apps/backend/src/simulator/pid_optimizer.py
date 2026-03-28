@@ -20,9 +20,8 @@ def pid_step(error: float, prev_error: float, integral: float,
 
 def simulate_with_pid(kp: float, ki: float, kd: float,
                        target_speed: float = 1.0, n_steps: int = 200,
-                       dt: float = 0.01, initial_theta: float = 0.4,
-                       wheel_base: float = 0.17, wheel_radius: float = 0.0325,
-                       seed: int | None = None) -> list[dict]:
+                       dt: float = 0.01, initial_theta: float = 0.1,
+                       wheel_base: float = 0.17, wheel_radius: float = 0.0325) -> list[dict]:
     """Run a differential drive simulation with PID heading correction.
 
     The robot tries to drive straight (target heading = 0). The PID controller
@@ -31,19 +30,9 @@ def simulate_with_pid(kp: float, ki: float, kd: float,
 
     Returns a trajectory: list of {x, y, theta, v_linear, v_angular, timestamp}.
     """
-    if seed is not None:
-        random.seed(seed)
     x, y, theta = 0.0, 0.0, initial_theta
     integral, prev_error = 0.0, 0.0
     trajectory = []
-
-    # A few discrete heading bumps early on — simulates the robot
-    # misjudging the line. Good PID corrects, bad PID drifts off.
-    bump_steps = {
-        int(n_steps * 0.05): 0.08,   # small bump at 5%
-        int(n_steps * 0.15): -0.12,  # overcorrect at 15%
-        int(n_steps * 0.25): 0.06,   # another nudge at 25%
-    }
 
     for step in range(n_steps):
         # Heading error: how far from theta=0 (straight ahead)
@@ -69,10 +58,6 @@ def simulate_with_pid(kp: float, ki: float, kd: float,
         x += v_linear * math.cos(theta) * dt
         y += v_linear * math.sin(theta) * dt
         theta += v_angular * dt
-
-        # Discrete heading bumps at specific steps
-        if step in bump_steps:
-            theta += bump_steps[step]
 
         trajectory.append({
             "x": round(x, 6),
@@ -101,7 +86,7 @@ def straight_line_score(trajectory: list[dict]) -> float:
 
 
 def optimize_pid(n_trials: int = 100, n_steps: int = 200, dt: float = 0.01,
-                  target_speed: float = 1.0, initial_theta: float = 0.4,
+                  target_speed: float = 1.0, initial_theta: float = 0.1,
                   bounds: dict | None = None) -> dict:
     """Find optimal PID gains via random search.
 
