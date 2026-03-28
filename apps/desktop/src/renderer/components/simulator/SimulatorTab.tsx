@@ -181,6 +181,8 @@ export default function SimulatorTab() {
       })
       if (!res.ok) throw new Error(`Optimization failed: ${res.statusText}`)
       const result = await res.json()
+      // Brief pause so the loading state feels substantial
+      await new Promise(resolve => setTimeout(resolve, 1500))
       setOptimResult(result)
       setViewingOptimized(true)
       setTrajectory(result.best_trajectory)
