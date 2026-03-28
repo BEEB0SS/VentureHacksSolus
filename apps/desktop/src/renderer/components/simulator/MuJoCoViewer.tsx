@@ -189,9 +189,9 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
     scene.add(mujocoRoot)
     mujocoRootRef.current = mujocoRoot
 
-    // Camera
+    // Camera — static overhead view, far enough to see the car drive around
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 100)
-    camera.position.set(0.5, 0.4, 0.5)
+    camera.position.set(0, 1.2, 1.0)
     camera.lookAt(0, 0, 0)
     cameraRef.current = camera
 
@@ -203,11 +203,13 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
     containerRef.current.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
-    // Orbit controls
+    // Orbit controls — user can still rotate/zoom manually, but no auto-damping
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.target.set(0, 0, 0)
-    controls.enableDamping = true
-    controls.dampingFactor = 0.1
+    controls.enableDamping = false
+    controls.enablePan = true
+    controls.minDistance = 0.3
+    controls.maxDistance = 5.0
     controlsRef.current = controls
 
     // Ambient + directional light
