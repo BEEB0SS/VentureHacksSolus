@@ -68,11 +68,15 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
   const currentFrameRef = useRef(0)
   const playbackSpeedRef = useRef(playbackSpeed)
 
-  // Callback refs (avoid stale closures)
+  // Callback refs (avoid stale closures that would retrigger init)
   const onTrajectoryUpdateRef = useRef(onTrajectoryUpdate)
   const onSimCompleteRef = useRef(onSimComplete)
+  const onReadyRef = useRef(onReady)
+  const onErrorRef = useRef(onError)
   useEffect(() => { onTrajectoryUpdateRef.current = onTrajectoryUpdate }, [onTrajectoryUpdate])
   useEffect(() => { onSimCompleteRef.current = onSimComplete }, [onSimComplete])
+  useEffect(() => { onReadyRef.current = onReady }, [onReady])
+  useEffect(() => { onErrorRef.current = onError }, [onError])
   useEffect(() => { playbackSpeedRef.current = playbackSpeed }, [playbackSpeed])
 
   // ── Initialize MuJoCo (for static model geometry only) + Three.js ──
@@ -81,8 +85,11 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
     try {
       setStatus('loading')
 
-      // Set up Three.js first
+      // Set up Three.js
       if (!containerRef.current) throw new Error('Container not mounted')
+      // Remove any previous canvas (in case of re-init)
+      const oldCanvas = containerRef.current.querySelector('canvas')
+      if (oldCanvas) oldCanvas.remove()
       const width = containerRef.current.clientWidth
       const height = containerRef.current.clientHeight || 400
 
@@ -140,15 +147,15 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
       await buildCarModel(scene)
 
       setStatus('ready')
-      onReady?.()
+      onReadyRef.current?.()
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       console.error('[MuJoCoViewer] Init failed:', err)
       setStatus('error')
       setErrorMsg(msg)
-      onError?.(msg)
+      onErrorRef.current?.(msg)
     }
-  }, [modelUrl, onReady, onError])
+  }, [modelUrl])
 
   // ── Build car model from MuJoCo MJCF (static geometry) ──
 
