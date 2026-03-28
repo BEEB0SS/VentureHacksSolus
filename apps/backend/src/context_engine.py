@@ -237,6 +237,147 @@ class ContextEngine:
             "metadata": relation.metadata, "confidence": relation.confidence, "created_at": relation.created_at,
         }
 
+    # ── Source Connections ──
+
+    def create_source(self, source: SourceConnection) -> SourceConnection:
+        source.project_id = self.project_id
+        if not source.id:
+            source.id = _uid()
+        conn = get_connection()
+        conn.execute(
+            "INSERT INTO source_connections (id, project_id, source_type, name, config, last_synced_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (source.id, source.project_id,
+             source.source_type.value if isinstance(source.source_type, SourceType) else source.source_type,
+             source.name, json.dumps(source.config), source.last_synced_at, source.status),
+        )
+        conn.commit()
+        conn.close()
+        return source
+
+    def list_sources(self) -> list[SourceConnection]:
+        conn = get_connection()
+        rows = conn.execute("SELECT * FROM source_connections WHERE project_id = ?", (self.project_id,)).fetchall()
+        conn.close()
+        return [SourceConnection(
+            id=r["id"], project_id=r["project_id"], source_type=SourceType(r["source_type"]),
+            name=r["name"], config=json.loads(r["config"]) if r["config"] else {},
+            last_synced_at=r["last_synced_at"], status=r["status"],
+        ) for r in rows]
+
+    def get_source(self, source_id: str) -> Optional[SourceConnection]:
+        conn = get_connection()
+        row = conn.execute("SELECT * FROM source_connections WHERE id = ? AND project_id = ?",
+                           (source_id, self.project_id)).fetchone()
+        conn.close()
+        if not row:
+            return None
+        return SourceConnection(
+            id=row["id"], project_id=row["project_id"], source_type=SourceType(row["source_type"]),
+            name=row["name"], config=json.loads(row["config"]) if row["config"] else {},
+            last_synced_at=row["last_synced_at"], status=row["status"],
+        )
+
+    # ── Snapshots + Diff ──
+
+    def create_snapshot(self, source_connection_id: str, data: dict) -> Snapshot:
+        snap = Snapshot(source_connection_id=source_connection_id, project_id=self.project_id, data=data)
+        conn = get_connection()
+        conn.execute(
+            "INSERT INTO snapshots (id, source_connection_id, project_id, data, created_at) VALUES (?, ?, ?, ?, ?)",
+            (snap.id, snap.source_connection_id, snap.project_id, json.dumps(snap.data), snap.created_at),
+        )
+        conn.execute(
+            "UPDATE source_connections SET last_synced_at = ?, status = 'connected' WHERE id = ?",
+            (snap.created_at, source_connection_id),
+        )
+        conn.commit()
+        conn.close()
+        return snap
+
+    def _get_snapshot(self, snapshot_id: str) -> Optional[Snapshot]:
+        conn = get_connection()
+        row = conn.execute("SELECT * FROM snapshots WHERE id = ? AND project_id = ?",
+                           (snapshot_id, self.project_id)).fetchone()
+        conn.close()
+        if not row:
+            return None
+        return Snapshot(id=row["id"], source_connection_id=row["source_connection_id"],
+                        project_id=row["project_id"], data=json.loads(row["data"]) if row["data"] else {},
+                        created_at=row["created_at"])
+
+    def get_latest_snapshot_id(self, source_connection_id: str) -> Optional[str]:
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT id FROM snapshots WHERE source_connection_id = ? AND project_id = ? ORDER BY created_at DESC LIMIT 1",
+            (source_connection_id, self.project_id)).fetchone()
+        conn.close()
+        return row["id"] if row else None
+
+    def diff_snapshots(self, old_snapshot_id: str, new_snapshot_id: str) -> list[ChangeEvent]:
+        old_snap = self._get_snapshot(old_snapshot_id)
+        new_snap = self._get_snapshot(new_snapshot_id)
+        if not old_snap or not new_snap:
+            missing = []
+            if not old_snap: missing.append(f"old={old_snapshot_id}")
+            if not new_snap: missing.append(f"new={new_snapshot_id}")
+            raise ValueError(f"Snapshot(s) not found: {', '.join(missing)}")
+
+        old_data, new_data = old_snap.data, new_snap.data
+        changes: list[ChangeEvent] = []
+        old_keys, new_keys = set(old_data.keys()), set(new_data.keys())
+
+        for key in new_keys - old_keys:
+            changes.append(ChangeEvent(project_id=self.project_id, source_connection_id=new_snap.source_connection_id,
+                change_type=ChangeType.ADDED, entity_name=key, description=f"Added: {key}", diff_data={"new": new_data[key]}))
+
+        for key in old_keys - new_keys:
+            changes.append(ChangeEvent(project_id=self.project_id, source_connection_id=old_snap.source_connection_id,
+                change_type=ChangeType.REMOVED, entity_name=key, description=f"Removed: {key}", diff_data={"old": old_data[key]}))
+
+        for key in old_keys & new_keys:
+            if old_data[key] != new_data[key]:
+                diff = {}
+                for prop in set(list(old_data[key].keys()) + list(new_data[key].keys())):
+                    old_val, new_val = old_data[key].get(prop), new_data[key].get(prop)
+                    if old_val != new_val:
+                        diff[prop] = {"old": old_val, "new": new_val}
+                changes.append(ChangeEvent(project_id=self.project_id, source_connection_id=new_snap.source_connection_id,
+                    change_type=ChangeType.MODIFIED, entity_name=key, description=f"Modified: {key}", diff_data=diff))
+
+        self._save_changes(changes)
+        return changes
+
+    def _save_changes(self, changes: list[ChangeEvent]):
+        if not changes: return
+        conn = get_connection()
+        try:
+            for change in changes:
+                conn.execute(
+                    """INSERT INTO change_events (id, project_id, source_connection_id, change_type, entity_id, entity_name, description, diff_data, impacted_entity_ids, created_at, acknowledged)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (change.id, change.project_id, change.source_connection_id,
+                     change.change_type.value if isinstance(change.change_type, ChangeType) else change.change_type,
+                     change.entity_id, change.entity_name, change.description,
+                     json.dumps(change.diff_data), json.dumps(change.impacted_entity_ids),
+                     change.created_at, int(change.acknowledged)))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def list_changes(self) -> list[ChangeEvent]:
+        conn = get_connection()
+        rows = conn.execute("SELECT * FROM change_events WHERE project_id = ? ORDER BY created_at DESC",
+                            (self.project_id,)).fetchall()
+        conn.close()
+        return [ChangeEvent(id=r["id"], project_id=r["project_id"], source_connection_id=r["source_connection_id"],
+            change_type=ChangeType(r["change_type"]), entity_id=r["entity_id"] or "", entity_name=r["entity_name"] or "",
+            description=r["description"] or "", diff_data=json.loads(r["diff_data"]) if r["diff_data"] else {},
+            impacted_entity_ids=json.loads(r["impacted_entity_ids"]) if r["impacted_entity_ids"] else [],
+            created_at=r["created_at"], acknowledged=bool(r["acknowledged"])) for r in rows]
+
     @staticmethod
     def _row_to_entity(row) -> Entity:
         return Entity(

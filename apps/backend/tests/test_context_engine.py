@@ -156,3 +156,91 @@ class TestFullGraph:
         graph = engine.get_full_graph()
         assert graph["entities"] == []
         assert graph["relations"] == []
+
+
+class TestSourceConnections:
+    def test_create_source(self, project_id):
+        from apps.backend.src.context_engine import ContextEngine
+        engine = ContextEngine(project_id)
+        src = engine.create_source(SourceConnection(
+            source_type=SourceType.KICAD, name="Motor Controller PCB",
+            config={"path": "/home/user/kicad/motor.kicad_sch"},
+        ))
+        assert src.id
+        assert src.project_id == project_id
+        assert src.source_type == SourceType.KICAD
+
+    def test_list_sources(self, project_id):
+        from apps.backend.src.context_engine import ContextEngine
+        engine = ContextEngine(project_id)
+        engine.create_source(SourceConnection(source_type=SourceType.KICAD, name="PCB"))
+        engine.create_source(SourceConnection(source_type=SourceType.GITHUB, name="Repo"))
+        sources = engine.list_sources()
+        assert len(sources) == 2
+
+
+class TestSnapshotDiff:
+    def test_create_snapshot(self, project_id):
+        from apps.backend.src.context_engine import ContextEngine
+        engine = ContextEngine(project_id)
+        src = engine.create_source(SourceConnection(source_type=SourceType.KICAD, name="PCB"))
+        snap = engine.create_snapshot(src.id, {
+            "DRV8825": {"type": "electrical_part", "package": "HTSSOP-28", "voltage": "8.2-45V"},
+            "NEMA17": {"type": "mechanical_part", "torque": "0.44Nm"},
+        })
+        assert snap.id
+        assert snap.source_connection_id == src.id
+
+    def test_diff_detects_added(self, project_id):
+        from apps.backend.src.context_engine import ContextEngine
+        engine = ContextEngine(project_id)
+        src = engine.create_source(SourceConnection(source_type=SourceType.KICAD, name="PCB"))
+        snap_old = engine.create_snapshot(src.id, {"DRV8825": {"type": "electrical_part"}})
+        snap_new = engine.create_snapshot(src.id, {"DRV8825": {"type": "electrical_part"}, "TMC2209": {"type": "electrical_part"}})
+        changes = engine.diff_snapshots(snap_old.id, snap_new.id)
+        added = [c for c in changes if c.change_type == ChangeType.ADDED]
+        assert len(added) == 1
+        assert added[0].entity_name == "TMC2209"
+
+    def test_diff_detects_removed(self, project_id):
+        from apps.backend.src.context_engine import ContextEngine
+        engine = ContextEngine(project_id)
+        src = engine.create_source(SourceConnection(source_type=SourceType.KICAD, name="PCB"))
+        snap_old = engine.create_snapshot(src.id, {"DRV8825": {"type": "electrical_part"}, "NEMA17": {"type": "mechanical_part"}})
+        snap_new = engine.create_snapshot(src.id, {"NEMA17": {"type": "mechanical_part"}})
+        changes = engine.diff_snapshots(snap_old.id, snap_new.id)
+        removed = [c for c in changes if c.change_type == ChangeType.REMOVED]
+        assert len(removed) == 1
+        assert removed[0].entity_name == "DRV8825"
+
+    def test_diff_detects_modified(self, project_id):
+        from apps.backend.src.context_engine import ContextEngine
+        engine = ContextEngine(project_id)
+        src = engine.create_source(SourceConnection(source_type=SourceType.KICAD, name="PCB"))
+        snap_old = engine.create_snapshot(src.id, {"DRV8825": {"type": "electrical_part", "voltage": "8.2-45V"}})
+        snap_new = engine.create_snapshot(src.id, {"DRV8825": {"type": "electrical_part", "voltage": "4.75-29V"}})
+        changes = engine.diff_snapshots(snap_old.id, snap_new.id)
+        modified = [c for c in changes if c.change_type == ChangeType.MODIFIED]
+        assert len(modified) == 1
+        assert modified[0].entity_name == "DRV8825"
+        assert "voltage" in modified[0].diff_data
+
+    def test_diff_no_changes(self, project_id):
+        from apps.backend.src.context_engine import ContextEngine
+        engine = ContextEngine(project_id)
+        src = engine.create_source(SourceConnection(source_type=SourceType.KICAD, name="PCB"))
+        data = {"DRV8825": {"type": "electrical_part"}}
+        snap_old = engine.create_snapshot(src.id, data)
+        snap_new = engine.create_snapshot(src.id, data)
+        changes = engine.diff_snapshots(snap_old.id, snap_new.id)
+        assert len(changes) == 0
+
+    def test_list_changes(self, project_id):
+        from apps.backend.src.context_engine import ContextEngine
+        engine = ContextEngine(project_id)
+        src = engine.create_source(SourceConnection(source_type=SourceType.KICAD, name="PCB"))
+        snap_old = engine.create_snapshot(src.id, {"A": {"v": 1}})
+        snap_new = engine.create_snapshot(src.id, {"A": {"v": 2}, "B": {"v": 1}})
+        engine.diff_snapshots(snap_old.id, snap_new.id)
+        changes = engine.list_changes()
+        assert len(changes) == 2  # 1 modified + 1 added
