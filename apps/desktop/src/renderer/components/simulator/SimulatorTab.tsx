@@ -66,6 +66,9 @@ export default function SimulatorTab() {
 
   // Optimization
   const [optimizing, setOptimizing] = useState(false)
+  const [showOptimizeInput, setShowOptimizeInput] = useState(false)
+  const [optimGoal, setOptimGoal] = useState('Tune PID gains to drive a straight line with minimal drift')
+  const [viewingOptimized, setViewingOptimized] = useState(false)
   const [optimResult, setOptimResult] = useState<{
     best_gains: { kp: number; ki: number; kd: number }
     best_score: number
@@ -84,6 +87,9 @@ export default function SimulatorTab() {
     setDiscrepancies([])
     setStepCount(0)
     setError(null)
+    setOptimResult(null)
+    setViewingOptimized(false)
+    setShowOptimizeInput(false)
   }, [])
 
   // Backend fallback simulation
@@ -112,6 +118,13 @@ export default function SimulatorTab() {
   }, [currentProjectId, nSteps, leftSpeed, rightSpeed, dt, params])
 
   const handlePlay = useCallback(() => {
+    // If we have optimization results, show the trajectory for the selected mode
+    if (optimResult) {
+      const traj = viewingOptimized ? optimResult.best_trajectory : optimResult.bad_trajectory
+      setTrajectory(traj.map((p: TrajectoryPoint & { step?: number }, i: number) => ({ ...p, step: i + 1 })))
+      setStepCount(traj.length)
+      return
+    }
     if (!wasmReady) {
       // Fallback to backend
       setBackendLoading(true)
@@ -121,7 +134,7 @@ export default function SimulatorTab() {
     viewerRef.current?.setControls(leftSpeed, rightSpeed)
     viewerRef.current?.play()
     setPlaying(true)
-  }, [wasmReady, leftSpeed, rightSpeed, runBackendSimulation])
+  }, [wasmReady, leftSpeed, rightSpeed, runBackendSimulation, optimResult, viewingOptimized])
 
   const handlePause = useCallback(() => {
     viewerRef.current?.pause()
@@ -196,7 +209,9 @@ export default function SimulatorTab() {
       if (!res.ok) throw new Error(`Optimization failed: ${res.statusText}`)
       const result = await res.json()
       setOptimResult(result)
+      setViewingOptimized(true)
       setTrajectory(result.best_trajectory)
+      setShowOptimizeInput(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Optimization failed')
     } finally {
@@ -260,17 +275,40 @@ export default function SimulatorTab() {
             </button>
           ) : (
             <button onClick={handlePlay} disabled={backendLoading} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-solus-accent rounded-md hover:bg-solus-accent-bright transition-colors disabled:opacity-50 cursor-pointer">
-              {backendLoading ? <LoadingSpinner size="sm" /> : <Play size={14} />} Run Simulation
+              {backendLoading ? <LoadingSpinner size="sm" /> : <Play size={14} />}
+              {optimResult ? (viewingOptimized ? 'Simulate (After)' : 'Simulate (Before)') : 'Run Simulation'}
             </button>
           )}
           <button
-            onClick={runOptimization}
-            disabled={optimizing}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-500 transition-colors disabled:opacity-50 cursor-pointer"
+            onClick={() => setShowOptimizeInput(prev => !prev)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+              showOptimizeInput
+                ? 'text-white bg-green-600'
+                : 'text-solus-text-dim bg-solus-elevated border border-solus-border hover:bg-solus-surface'
+            }`}
           >
-            {optimizing ? <LoadingSpinner size="sm" /> : <Play size={14} />}
-            {optimizing ? 'Optimizing...' : 'Optimize PID'}
+            Optimize
           </button>
+          {optimResult && (
+            <div className="flex items-center bg-solus-elevated border border-solus-border rounded-md overflow-hidden">
+              <button
+                onClick={() => { setViewingOptimized(false); setTrajectory(optimResult.bad_trajectory) }}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                  !viewingOptimized ? 'bg-red-600 text-white' : 'text-solus-text-dim hover:bg-solus-surface'
+                }`}
+              >
+                Before
+              </button>
+              <button
+                onClick={() => { setViewingOptimized(true); setTrajectory(optimResult.best_trajectory) }}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                  viewingOptimized ? 'bg-green-600 text-white' : 'text-solus-text-dim hover:bg-solus-surface'
+                }`}
+              >
+                After
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -279,6 +317,29 @@ export default function SimulatorTab() {
         <div className="bg-solus-error/10 border-b border-solus-error/30 px-4 py-1.5 flex items-center gap-2">
           <AlertTriangle size={14} className="text-solus-error" />
           <span className="text-xs text-solus-error">{error}</span>
+        </div>
+      )}
+
+      {/* Optimize input panel */}
+      {showOptimizeInput && (
+        <div className="px-4 py-3 border-b border-solus-border bg-solus-surface/50">
+          <label className="text-xs text-solus-text-dim mb-1.5 block">What do you want to optimize?</label>
+          <div className="flex gap-2">
+            <input
+              value={optimGoal}
+              onChange={e => setOptimGoal(e.target.value)}
+              placeholder="e.g. Tune PID gains to drive straight..."
+              className="flex-1 bg-solus-elevated border border-solus-border rounded px-3 py-1.5 text-sm text-solus-text focus:outline-none focus:border-solus-accent"
+            />
+            <button
+              onClick={runOptimization}
+              disabled={optimizing}
+              className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-500 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {optimizing ? <LoadingSpinner size="sm" /> : <Play size={14} />}
+              {optimizing ? 'Optimizing...' : 'Run'}
+            </button>
+          </div>
         </div>
       )}
 
