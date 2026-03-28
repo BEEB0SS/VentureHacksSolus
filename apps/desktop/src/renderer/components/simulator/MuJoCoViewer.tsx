@@ -68,7 +68,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
   const controlsRef = useRef<OrbitControls | null>(null)
-  const bodyGroupsRef = useRef<Map<number, THREE.Group>>(new Map())
+  const geomMeshesRef = useRef<Map<number, THREE.Mesh>>(new Map())
   const mujocoRootRef = useRef<THREE.Group | null>(null)
   const animFrameRef = useRef<number>(0)
   const playingRef = useRef(false)
@@ -231,43 +231,26 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
   }, [])
 
   // ── Build Three.js Scene from MuJoCo Model ──
-  // Groups meshes by BODY ID (not geom index). Each body gets a Three.js Group
-  // whose transform is updated from data.xpos/data.xquat each frame.
-  // Geoms are added as children of their parent body group with local offsets.
+  // Each geom gets its own Three.js mesh, placed directly in the mujocoRoot.
+  // syncVisuals reads world-space geom transforms from data.geom_xpos + data.geom_xmat.
 
   const buildSceneFromModel = useCallback((mj: any, model: any, data: any, currentMeshUrls: string[]) => {
     const root = mujocoRootRef.current
     if (!root) return
 
-    // Clear old body groups
-    bodyGroupsRef.current.forEach(group => root.remove(group))
-    bodyGroupsRef.current.clear()
+    // Clear old meshes
+    geomMeshesRef.current.forEach(mesh => root.remove(mesh))
+    geomMeshesRef.current.clear()
 
-    const nbody = model.nbody
     const ngeom = model.ngeom
 
-    // Create a Three.js Group for each body
-    for (let b = 0; b < nbody; b++) {
-      const group = new THREE.Group()
-      root.add(group)
-      bodyGroupsRef.current.set(b, group)
-    }
-
-    // Track mesh-type geoms for STL loading
-    const meshGeomIndices: number[] = []
-
-    // Create Three.js geometry for each geom, parented to its body group
     for (let i = 0; i < ngeom; i++) {
       const geomType = model.geom_type[i]
       const geomSize = [model.geom_size[i * 3], model.geom_size[i * 3 + 1], model.geom_size[i * 3 + 2]]
       const geomRgba = [model.geom_rgba[i * 4], model.geom_rgba[i * 4 + 1], model.geom_rgba[i * 4 + 2], model.geom_rgba[i * 4 + 3]]
-      const bodyId = model.geom_bodyid[i]
 
-      // Skip invisible geoms (rgba alpha = 0, used for collision only)
+      // Skip invisible geoms (rgba alpha = 0)
       if (geomRgba[3] === 0) continue
-
-      const bodyGroup = bodyGroupsRef.current.get(bodyId)
-      if (!bodyGroup) continue
 
       let geometry: THREE.BufferGeometry | null = null
       const material = new THREE.MeshPhongMaterial({
@@ -288,70 +271,25 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
           geometry = new THREE.CapsuleGeometry(geomSize[0], geomSize[1] * 2, 8, 16)
           break
         case 5: // cylinder
+          // Three.js cylinder axis is Y; we'll get the correct orientation
+          // from data.geom_xmat in syncVisuals
           geometry = new THREE.CylinderGeometry(geomSize[0], geomSize[0], geomSize[1] * 2, 16)
-          // Don't rotate here — MuJoCo geom euler handles orientation,
-          // and syncVisuals applies the full body+geom transform
           break
         case 6: // box
           geometry = new THREE.BoxGeometry(geomSize[0] * 2, geomSize[1] * 2, geomSize[2] * 2)
           break
-        case 7: // mesh — tracked for STL loading below
-          meshGeomIndices.push(i)
-          continue
         default:
           continue
       }
 
       if (geometry) {
         const mesh = new THREE.Mesh(geometry, material)
-        // Geom local position within body
-        const gp = model.geom_pos
-        mesh.position.set(gp[i * 3], gp[i * 3 + 1], gp[i * 3 + 2])
-        // Geom local orientation within body (quaternion: w,x,y,z in MuJoCo)
-        const gq = model.geom_quat
-        if (gq) {
-          mesh.quaternion.set(
-            gq[i * 4 + 1], // x
-            gq[i * 4 + 2], // y
-            gq[i * 4 + 3], // z
-            gq[i * 4 + 0], // w
-          )
-        }
-        bodyGroup.add(mesh)
+        root.add(mesh)
+        geomMeshesRef.current.set(i, mesh)
       }
     }
 
-    // Load STL meshes for mesh-type geoms
-    const stlLoader = new STLLoader()
-    currentMeshUrls.forEach((url, idx) => {
-      if (idx >= meshGeomIndices.length) return
-      const geomIdx = meshGeomIndices[idx]
-      const bodyId = model.geom_bodyid[geomIdx]
-      const bodyGroup = bodyGroupsRef.current.get(bodyId)
-      if (!bodyGroup) return
-
-      const geomRgba = [
-        model.geom_rgba[geomIdx * 4],
-        model.geom_rgba[geomIdx * 4 + 1],
-        model.geom_rgba[geomIdx * 4 + 2],
-        model.geom_rgba[geomIdx * 4 + 3],
-      ]
-
-      stlLoader.load(url, (stlGeometry) => {
-        const material = new THREE.MeshPhongMaterial({
-          color: new THREE.Color(geomRgba[0], geomRgba[1], geomRgba[2]),
-        })
-        // STL meshes are in mm, MJCF scale converts to meters
-        stlGeometry.scale(0.001, 0.001, 0.001)
-        const mesh = new THREE.Mesh(stlGeometry, material)
-        // Apply geom local position within body
-        const gp = model.geom_pos
-        mesh.position.set(gp[geomIdx * 3], gp[geomIdx * 3 + 1], gp[geomIdx * 3 + 2])
-        bodyGroup.add(mesh)
-      })
-    })
-
-    // Initial forward pass + render
+    // Initial forward pass to compute geom transforms, then sync + render
     mj.mj_forward(model, data)
     syncVisuals()
     renderFrame()
@@ -366,31 +304,54 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
   }, [])
 
   // ── Update Three.js Transforms from MuJoCo State ──
-  // Uses body-level data.xpos (3 per body) and data.xquat (4 per body, wxyz order)
-  // This is the proven approach from the reference mujoco_wasm project.
+  // Uses per-geom world transforms: data.geom_xpos (3 per geom) and data.geom_xmat (9 per geom).
+  // This gives us the fully-resolved world position + orientation for each geom,
+  // including body transforms + geom-local euler rotations.
 
   const syncVisuals = useCallback(() => {
     const data = dataRef.current
     if (!data) return
 
-    bodyGroupsRef.current.forEach((group, bodyId) => {
-      // Body position from data.xpos (3 values per body)
-      group.position.set(
-        data.xpos[bodyId * 3 + 0],
-        data.xpos[bodyId * 3 + 1],
-        data.xpos[bodyId * 3 + 2],
+    geomMeshesRef.current.forEach((mesh, geomIdx) => {
+      // World position from data.geom_xpos
+      mesh.position.set(
+        data.geom_xpos[geomIdx * 3 + 0],
+        data.geom_xpos[geomIdx * 3 + 1],
+        data.geom_xpos[geomIdx * 3 + 2],
       )
 
-      // Body orientation from data.xquat (4 values per body, MuJoCo order: w,x,y,z)
-      // Three.js Quaternion constructor: (x, y, z, w)
-      group.quaternion.set(
-        data.xquat[bodyId * 4 + 1], // x
-        data.xquat[bodyId * 4 + 2], // y
-        data.xquat[bodyId * 4 + 3], // z
-        data.xquat[bodyId * 4 + 0], // w
+      // World orientation from data.geom_xmat (3x3 rotation matrix, row-major)
+      // Convert to Three.js Matrix4, then extract quaternion
+      const m = data.geom_xmat
+      const off = geomIdx * 9
+      const mat4 = new THREE.Matrix4()
+      // MuJoCo xmat is row-major: [r00,r01,r02, r10,r11,r12, r20,r21,r22]
+      // Three.js Matrix4.set() takes row-major arguments
+      mat4.set(
+        m[off + 0], m[off + 1], m[off + 2], 0,
+        m[off + 3], m[off + 4], m[off + 5], 0,
+        m[off + 6], m[off + 7], m[off + 8], 0,
+        0, 0, 0, 1,
       )
 
-      group.updateMatrixWorld()
+      // But Three.js cylinders have Y as their axis, while MuJoCo uses Z.
+      // We need to pre-rotate the cylinder geometry's local frame.
+      // Since we can't distinguish geom types here easily, we apply a
+      // correction: multiply by a -90° X rotation for cylinders.
+      // Actually — the xmat already includes the geom's euler rotation,
+      // so we just need to account for Three.js vs MuJoCo cylinder axis convention.
+
+      const quat = new THREE.Quaternion()
+      quat.setFromRotationMatrix(mat4)
+      mesh.quaternion.copy(quat)
+
+      // For cylinders (Y-axis in Three.js vs Z-axis in MuJoCo),
+      // apply a local correction rotation
+      if ((mesh.geometry as any)?.type === 'CylinderGeometry') {
+        const correction = new THREE.Quaternion()
+        correction.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2)
+        mesh.quaternion.multiply(correction)
+      }
     })
   }, [])
 
