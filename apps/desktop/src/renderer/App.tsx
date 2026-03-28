@@ -4,11 +4,9 @@ import { useProjectStore } from './stores/projectStore'
 import { LoadingSpinner } from './components/shared/LoadingSpinner'
 import WorkspaceTab from './components/workspace/WorkspaceTab'
 import ContextModelTab from './components/context-model/ContextModelTab'
+import AgentTab from './components/agent/AgentTab'
 
 // Placeholders — teammates replace these when they merge
-const AgentTab = () => (
-  <div className="p-8 text-solus-text-dim">Agent — not built yet</div>
-)
 const LiveBenchTab = () => (
   <div className="p-8 text-solus-text-dim">Live Bench — not built yet</div>
 )
@@ -95,6 +93,8 @@ export default function App() {
         <main className="flex-1 overflow-auto">
           {activeTab === 'context' && currentProjectId ? (
             <ContextModelTab projectId={currentProjectId} />
+          ) : activeTab === 'agent' && currentProjectId ? (
+            <AgentTab projectId={currentProjectId} />
           ) : (
             <ActiveComponent />
           )}
