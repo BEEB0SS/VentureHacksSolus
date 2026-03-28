@@ -44,9 +44,9 @@ export default function SimulatorTab() {
 
   // Parameters
   const [params, setParams] = useState<Record<string, number>>({ ...DEFAULT_PARAMS })
-  const [leftSpeed, setLeftSpeed] = useState(8.0)
+  const [leftSpeed, setLeftSpeed] = useState(6.0)
   const [rightSpeed, setRightSpeed] = useState(8.0)
-  const [nSteps, setNSteps] = useState(500)
+  const [nSteps, setNSteps] = useState(2000)
   const [dt, setDt] = useState(0.01)
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0)
 
@@ -66,15 +66,22 @@ export default function SimulatorTab() {
   // Optimization
   const [optimizing, setOptimizing] = useState(false)
   const [showOptimizeInput, setShowOptimizeInput] = useState(false)
-  const [optimGoal, setOptimGoal] = useState('')
+  const [optimGoal, setOptimGoal] = useState('Tune PID gains to drive a straight line with minimal drift')
   const [viewingOptimized, setViewingOptimized] = useState(false)
   const [optimResult, setOptimResult] = useState<{
-    best_gains: { kp: number; ki: number; kd: number }
+    best_params: Record<string, number | null>
     best_score: number
-    bad_score: number
+    baseline_score: number
     best_trajectory: TrajectoryPoint[]
-    bad_trajectory: TrajectoryPoint[]
+    baseline_trajectory: TrajectoryPoint[]
     trials_run: number
+    new_mjcf: string | null
+    mjcf_changed: boolean
+    explanation: string
+    changes_summary: string[]
+    search_space: Record<string, number[]>
+    scoring_function: string
+    graph_constraints_used: string[]
   } | null>(null)
 
   // ── Handlers ──
@@ -91,63 +98,41 @@ export default function SimulatorTab() {
     setShowOptimizeInput(false)
   }, [])
 
-  const handlePlay = useCallback(async () => {
-    // Pick the trajectory to play
-    let traj: TrajectoryPoint[]
-
+  const handlePlay = useCallback(() => {
     if (optimResult) {
-      // Use the before/after trajectory based on toggle
-      traj = viewingOptimized ? optimResult.best_trajectory : optimResult.bad_trajectory
-    } else {
-      // No optimization yet — run PID sim with bad gains (no correction = car drifts)
-      if (!currentProjectId) return
-      setBackendLoading(true)
-      setError(null)
-      try {
-        const res = await fetch(`${API_BASE}/api/projects/${currentProjectId}/simulator/run-pid`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ kp: 0, ki: 0, kd: 0, n_steps: nSteps, dt }),
-        })
-        if (!res.ok) throw new Error(`Simulation failed: ${res.statusText}`)
-        const result = await res.json()
-        traj = result.trajectory
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Simulation failed')
-        setBackendLoading(false)
-        return
+      const bp = optimResult.best_params
+      if (viewingOptimized) {
+        // After: use best params from search
+        if (bp.left_speed != null && bp.right_speed != null) {
+          viewerRef.current?.play(bp.left_speed as number, bp.right_speed as number)
+        } else {
+          viewerRef.current?.playWithPID(
+            (bp.pid_kp as number) || 0,
+            (bp.pid_ki as number) || 0,
+            (bp.pid_kd as number) || 0,
+            (bp.target_speed as number) || 1.0,
+          )
+        }
+      } else {
+        // Before: no PID correction (baseline)
+        viewerRef.current?.playWithPID(0, 0, 0, 1.0)
       }
-      setBackendLoading(false)
+    } else {
+      viewerRef.current?.play(leftSpeed, rightSpeed)
     }
-
-    // Normalize trajectory to start at origin (backend sim accumulates position)
-    const x0 = traj[0]?.x ?? 0
-    const y0 = traj[0]?.y ?? 0
-    const theta0 = traj[0]?.theta ?? 0
-    const normalizedTraj = traj.map((p: TrajectoryPoint & { step?: number }, i: number) => ({
-      ...p,
-      x: p.x - x0,
-      y: p.y - y0,
-      theta: p.theta - theta0,
-      step: i + 1,
-    }))
-
-    // Update charts
-    setTrajectory(normalizedTraj)
-    setStepCount(normalizedTraj.length)
-
-    // Animate in 3D viewer
-    viewerRef.current?.playTrajectory(normalizedTraj)
+    setTrajectory([])
+    setStepCount(0)
     setPlaying(true)
-  }, [currentProjectId, nSteps, leftSpeed, rightSpeed, dt, params, optimResult, viewingOptimized])
+  }, [leftSpeed, rightSpeed, optimResult, viewingOptimized])
 
   const handlePause = useCallback(() => {
     viewerRef.current?.pause()
     setPlaying(false)
   }, [])
 
-  const handleTrajectoryUpdate = useCallback((traj: TrajectoryPoint[], currentIndex: number) => {
-    setStepCount(currentIndex + 1)
+  const handleTrajectoryUpdate = useCallback((traj: TrajectoryPoint[]) => {
+    setTrajectory([...traj])
+    setStepCount(traj.length)
   }, [])
 
   const handleSimComplete = useCallback(() => {
@@ -174,25 +159,47 @@ export default function SimulatorTab() {
     setError(null)
     setOptimResult(null)
     try {
-      const res = await fetch(`${API_BASE}/api/projects/${currentProjectId}/simulator/optimize`, {
+      // Fetch current MJCF
+      const mjcfRes = await fetch('/models/elegoo-rover.xml')
+      const currentMjcf = await mjcfRes.text()
+
+      const res = await fetch(`${API_BASE}/api/projects/${currentProjectId}/simulator/ai-tune`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ n_trials: 300, n_steps: 500 }),
+        body: JSON.stringify({
+          goal: optimGoal,
+          current_mjcf: currentMjcf,
+          current_params: {
+            left_speed: leftSpeed,
+            right_speed: rightSpeed,
+            pid_gains: { kp: 0, ki: 0, kd: 0 },
+            target_speed: 1.0,
+          },
+          n_trials: 100,
+          n_steps: 200,
+        }),
       })
-      if (!res.ok) throw new Error(`Optimization failed: ${res.statusText}`)
+      if (!res.ok) throw new Error(`AI tuning failed: ${res.statusText}`)
       const result = await res.json()
-      // Brief pause so the loading state feels substantial
-      await new Promise(resolve => setTimeout(resolve, 1500))
       setOptimResult(result)
       setViewingOptimized(true)
       setTrajectory(result.best_trajectory)
       setShowOptimizeInput(false)
+
+      // If MJCF was changed, reload the model in the viewer
+      if (result.mjcf_changed && result.new_mjcf) {
+        try {
+          await viewerRef.current?.loadModelFromXml(result.new_mjcf)
+        } catch (err) {
+          console.warn('Failed to reload model:', err)
+        }
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Optimization failed')
+      setError(err instanceof Error ? err.message : 'AI tuning failed')
     } finally {
       setOptimizing(false)
     }
-  }, [currentProjectId])
+  }, [currentProjectId, optimGoal, leftSpeed, rightSpeed])
 
   // Compare with mock runtime data
   const runComparison = useCallback(async () => {
@@ -227,153 +234,193 @@ export default function SimulatorTab() {
   }, [currentProjectId, trajectory])
 
   if (!currentProjectId) {
-    return <EmptyState title="No project selected" description="Select a project from the Workspace tab." />
+    return <EmptyState title="No project selected" description="Select a project from the Workspace tab to use the simulator." />
   }
-
-  const inputCls = "w-full bg-solus-bg border border-solus-border/50 rounded-lg px-3 py-2 text-[13px] font-mono text-solus-text focus:outline-none focus:border-solus-accent/50 transition-colors"
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-8 py-5 border-b border-solus-border/40 shrink-0">
-        <span className="text-[14px] font-medium text-solus-text tracking-wide">Simulator</span>
-        <div className="flex items-center gap-4">
-          <button
-            onClick={handleReset}
-            className="flex items-center gap-2.5 px-6 py-3 text-[13px] font-medium rounded-lg bg-[#16161d] border border-[#2a2a3a] text-[#94a3b8] hover:text-[#e2e8f0] hover:border-[#3a3a4a] transition-colors cursor-pointer"
-          >
+      <div className="flex items-center justify-between px-4 py-3 border-b border-solus-border">
+        <div>
+          <h2 className="text-sm font-semibold text-solus-text">Simulator</h2>
+          <p className="text-xs text-solus-text-muted">
+            Differential drive simulation — adjust parameters and compare before/after optimization
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={handleReset} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-solus-text-dim bg-solus-elevated border border-solus-border rounded-md hover:bg-solus-surface transition-colors cursor-pointer">
             <RotateCcw size={14} /> Reset
           </button>
-          <div className="w-px h-8 bg-[#1e1e2a]" />
           {playing ? (
-            <button
-              onClick={handlePause}
-              className="flex items-center gap-2.5 px-6 py-3 text-[13px] font-medium rounded-lg text-white bg-amber-600 hover:bg-amber-500 transition-colors cursor-pointer"
-            >
+            <button onClick={handlePause} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-solus-warning rounded-md hover:opacity-90 transition-colors cursor-pointer">
               <Pause size={14} /> Pause
             </button>
           ) : (
-            <button
-              onClick={handlePlay}
-              disabled={backendLoading}
-              className="flex items-center gap-2.5 px-6 py-3 text-[13px] font-medium rounded-lg text-white bg-[#6366f1] hover:bg-[#818cf8] disabled:opacity-40 transition-colors cursor-pointer"
-            >
+            <button onClick={handlePlay} disabled={backendLoading} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-solus-accent rounded-md hover:bg-solus-accent-bright transition-colors disabled:opacity-50 cursor-pointer">
               {backendLoading ? <LoadingSpinner size="sm" /> : <Play size={14} />}
-              {optimResult ? (viewingOptimized ? 'Simulate After' : 'Simulate Before') : 'Simulate'}
+              {optimResult ? (viewingOptimized ? 'Simulate (After)' : 'Simulate (Before)') : 'Run Simulation'}
             </button>
           )}
           <button
-            onClick={runOptimization}
-            disabled={optimizing}
-            className={`flex items-center gap-2.5 px-6 py-3 text-[13px] font-medium rounded-lg transition-colors cursor-pointer ${
-              optimizing
-                ? 'text-white bg-emerald-600'
-                : 'bg-[#16161d] border border-[#2a2a3a] text-[#94a3b8] hover:text-[#e2e8f0] hover:border-[#3a3a4a]'
+            onClick={() => setShowOptimizeInput(prev => !prev)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+              showOptimizeInput
+                ? 'text-white bg-green-600'
+                : 'text-solus-text-dim bg-solus-elevated border border-solus-border hover:bg-solus-surface'
             }`}
           >
-            {optimizing ? <><LoadingSpinner size="sm" /> Optimizing...</> : 'Optimize'}
+            Optimize
           </button>
           {optimResult && (
-            <>
-              <div className="w-px h-8 bg-[#1e1e2a]" />
-              <div className="flex items-center rounded-lg overflow-hidden border border-[#2a2a3a]">
-                <button
-                  onClick={() => { setViewingOptimized(false); setTrajectory(optimResult.bad_trajectory) }}
-                  className={`px-6 py-3 text-[13px] font-medium transition-colors cursor-pointer ${
-                    !viewingOptimized ? 'bg-red-500/15 text-red-400' : 'text-[#4e4e62] hover:text-[#8b8b9e]'
-                  }`}
-                >
-                  Before
-                </button>
-                <div className="w-px h-6 bg-[#2a2a3a]" />
-                <button
-                  onClick={() => { setViewingOptimized(true); setTrajectory(optimResult.best_trajectory) }}
-                  className={`px-6 py-3 text-[13px] font-medium transition-colors cursor-pointer ${
-                    viewingOptimized ? 'bg-emerald-500/15 text-emerald-400' : 'text-[#4e4e62] hover:text-[#8b8b9e]'
-                  }`}
-                >
-                  After
-                </button>
-              </div>
-            </>
+            <div className="flex items-center bg-solus-elevated border border-solus-border rounded-md overflow-hidden">
+              <button
+                onClick={() => { setViewingOptimized(false); setTrajectory(optimResult.baseline_trajectory) }}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                  !viewingOptimized ? 'bg-red-600 text-white' : 'text-solus-text-dim hover:bg-solus-surface'
+                }`}
+              >
+                Before
+              </button>
+              <button
+                onClick={() => { setViewingOptimized(true); setTrajectory(optimResult.best_trajectory) }}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                  viewingOptimized ? 'bg-green-600 text-white' : 'text-solus-text-dim hover:bg-solus-surface'
+                }`}
+              >
+                After
+              </button>
+            </div>
           )}
         </div>
       </div>
 
-      {/* Error */}
+      {/* Error banner */}
       {error && (
-        <div className="bg-solus-error/5 border-b border-solus-error/10 px-8 py-3 flex items-center gap-3">
-          <AlertTriangle size={14} className="text-solus-error/60" />
-          <span className="text-[12px] text-solus-error/70">{error}</span>
+        <div className="bg-solus-error/10 border-b border-solus-error/30 px-4 py-1.5 flex items-center gap-2">
+          <AlertTriangle size={14} className="text-solus-error" />
+          <span className="text-xs text-solus-error">{error}</span>
         </div>
       )}
 
-      {/* Main */}
+      {/* Optimize input panel */}
+      {showOptimizeInput && (
+        <div className="px-4 py-3 border-b border-solus-border bg-solus-surface/50">
+          <label className="text-xs text-solus-text-dim mb-1.5 block">What do you want to optimize?</label>
+          <div className="flex gap-2">
+            <input
+              value={optimGoal}
+              onChange={e => setOptimGoal(e.target.value)}
+              placeholder="e.g. Tune PID gains to drive straight..."
+              className="flex-1 bg-solus-elevated border border-solus-border rounded px-3 py-1.5 text-sm text-solus-text focus:outline-none focus:border-solus-accent"
+            />
+            <button
+              onClick={runOptimization}
+              disabled={optimizing}
+              className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-500 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {optimizing ? <LoadingSpinner size="sm" /> : <Play size={14} />}
+              {optimizing ? 'Optimizing...' : 'Run'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left — Settings */}
-        <div className="w-60 border-r border-solus-border/40 overflow-y-auto px-7 py-7 space-y-7">
-          <div className="space-y-6">
-            <div>
-              <label className="text-[13px] text-solus-text-dim mb-2.5 block">Steps</label>
-              <input type="number" value={nSteps} step={100} min={1}
-                onChange={e => setNSteps(parseInt(e.target.value) || 100)} className={inputCls} />
-            </div>
-            <div>
-              <label className="text-[13px] text-solus-text-dim mb-2.5 block">Playback Speed</label>
-              <div className="flex items-center gap-4 mt-1">
-                <input type="range" min={0.25} max={4} step={0.25} value={playbackSpeed}
-                  onChange={e => setPlaybackSpeed(parseFloat(e.target.value))}
-                  className="flex-1" />
-                <span className="text-[12px] font-mono text-solus-text-muted w-8 text-right">{playbackSpeed}x</span>
-              </div>
-            </div>
-          </div>
-
-          {/* PID Gains — read-only, shows current policy */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="text-[13px] text-solus-text-dim">PID Gains</label>
-              {(!optimResult || !viewingOptimized) && (
-                <span className="text-[10px] text-red-400/70 uppercase tracking-wider">Untuned</span>
-              )}
-              {optimResult && viewingOptimized && (
-                <span className="text-[10px] text-emerald-400/70 uppercase tracking-wider">Optimized</span>
-              )}
-            </div>
-            {['kp', 'ki', 'kd'].map((key) => {
-              const value = optimResult && viewingOptimized
-                ? optimResult.best_gains[key as keyof typeof optimResult.best_gains]
-                : 0
-              return (
-                <div key={key} className="flex items-center justify-between">
-                  <span className="text-[12px] font-mono text-solus-text-muted uppercase">{key}</span>
-                  <span className={`text-[14px] font-mono ${optimResult && viewingOptimized ? 'text-emerald-400' : 'text-red-400/70'}`}>
-                    {value.toFixed(3)}
-                  </span>
+        {/* Left Panel: Parameters */}
+        <div className="w-72 border-r border-solus-border overflow-y-auto p-4 space-y-4">
+          <Card title="Robot Parameters" compact>
+            <div className="space-y-3">
+              {Object.entries(PARAM_LABELS).map(([key, { label, unit, step }]) => (
+                <div key={key}>
+                  <label className="flex items-center justify-between text-xs text-solus-text-dim mb-1">
+                    <span>{label}</span>
+                    <span className="font-mono text-solus-text-muted">{unit}</span>
+                  </label>
+                  <input type="number" value={params[key] ?? 0} step={step}
+                    onChange={e => setParams(prev => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))}
+                    className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent" />
                 </div>
-              )
-            })}
-          </div>
+              ))}
+            </div>
+          </Card>
 
-          {stepCount > 0 && (
-            <div>
-              <div className="flex justify-between text-[12px] font-mono text-solus-text-muted mb-2.5">
-                <span>Progress</span>
-                <span>{stepCount} / {nSteps}</span>
+          <Card title="Wheel Speeds (rad/s)" compact>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-solus-text-dim mb-1 block">Left Wheel</label>
+                <input type="number" value={leftSpeed} step={0.5}
+                  onChange={e => setLeftSpeed(parseFloat(e.target.value) || 0)}
+                  className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent" />
               </div>
-              <div className="h-1.5 bg-solus-border/20 rounded-full overflow-hidden">
-                <div className="h-full bg-solus-accent/50 rounded-full transition-all"
-                  style={{ width: `${Math.min(100, (stepCount / nSteps) * 100)}%` }} />
+              <div>
+                <label className="text-xs text-solus-text-dim mb-1 block">Right Wheel</label>
+                <input type="number" value={rightSpeed} step={0.5}
+                  onChange={e => setRightSpeed(parseFloat(e.target.value) || 0)}
+                  className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent" />
               </div>
             </div>
+          </Card>
+
+          <Card title="Simulation Settings" compact>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-solus-text-dim mb-1 block">Max Steps</label>
+                <input type="number" value={nSteps} step={100} min={1}
+                  onChange={e => setNSteps(parseInt(e.target.value) || 100)}
+                  className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent" />
+              </div>
+              <div>
+                <label className="text-xs text-solus-text-dim mb-1 block">Time Step (s)</label>
+                <input type="number" value={dt} step={0.005} min={0.001}
+                  onChange={e => setDt(parseFloat(e.target.value) || 0.01)}
+                  className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent" />
+              </div>
+              <div>
+                <label className="text-xs text-solus-text-dim mb-1 block">Playback Speed</label>
+                <div className="flex items-center gap-2">
+                  <input type="range" min={0.25} max={4} step={0.25} value={playbackSpeed}
+                    onChange={e => setPlaybackSpeed(parseFloat(e.target.value))}
+                    className="flex-1" />
+                  <span className="text-xs font-mono text-solus-text w-10 text-right">{playbackSpeed}x</span>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          {/* Step counter */}
+          {stepCount > 0 && (
+            <Card title="Progress" compact>
+              <div className="font-mono text-xs text-solus-text">
+                <div className="flex justify-between">
+                  <span className="text-solus-text-dim">Steps</span>
+                  <span>{stepCount} / {nSteps}</span>
+                </div>
+                <div className="mt-2 h-1.5 bg-solus-elevated rounded-full overflow-hidden">
+                  <div className="h-full bg-solus-accent rounded-full transition-all"
+                    style={{ width: `${Math.min(100, (stepCount / nSteps) * 100)}%` }} />
+                </div>
+              </div>
+            </Card>
           )}
         </div>
 
-        {/* Right — Viewer + Charts */}
+        {/* Right Panel: Viewer + Charts */}
         <div className="flex-1 overflow-y-auto">
-          <div className="p-8 space-y-8">
+          {/* Model source bar */}
+          <ModelSourceBar
+            activeSource={modelSource}
+            loading={modelLoading}
+            onLoadDefault={handleLoadDefault}
+            onUploadFile={handleUploadFile}
+            onImportOnshape={handleImportOnshape}
+          />
+
+          <div className="p-4 space-y-4">
+            {/* 3D Viewer */}
             <MuJoCoViewer
               ref={viewerRef}
+              maxSteps={nSteps}
               playbackSpeed={playbackSpeed}
               onTrajectoryUpdate={handleTrajectoryUpdate}
               onSimComplete={handleSimComplete}
@@ -381,110 +428,163 @@ export default function SimulatorTab() {
               onError={() => {}}
             />
 
+            {/* Charts */}
             {trajectory.length > 0 && (
-              <div className="space-y-8">
-                <Card title="Trajectory">
-                  <div className="h-52 mt-2">
+              <>
+                <Card title="Trajectory (X-Y Path)">
+                  <div className="h-48">
                     <ResponsiveContainer width="100%" height="100%">
-                      {optimResult ? (
-                        <LineChart margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2a" />
-                          <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
-                          <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
-                          <Tooltip contentStyle={{ backgroundColor: '#0f0f13', border: '1px solid #1e1e2a', borderRadius: 8, fontSize: 12, padding: '8px 12px' }} />
-                          <Legend wrapperStyle={{ fontSize: 11, color: '#8b8b9e', paddingTop: 8 }} />
-                          <Line data={optimResult.bad_trajectory} dataKey="y" name="Before" stroke="#f87171" dot={false} strokeWidth={1.5} strokeDasharray="4 3" />
-                          <Line data={optimResult.best_trajectory} dataKey="y" name="After" stroke="#34d399" dot={false} strokeWidth={2} />
-                        </LineChart>
-                      ) : (
-                        <LineChart data={trajectory} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2a" />
-                          <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
-                          <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
-                          <Tooltip contentStyle={{ backgroundColor: '#0f0f13', border: '1px solid #1e1e2a', borderRadius: 8, fontSize: 12, padding: '8px 12px' }} formatter={(value: number) => [value.toFixed(4), '']} />
-                          <Line type="monotone" dataKey="y" stroke="#6366f1" dot={false} strokeWidth={1.5} />
-                        </LineChart>
-                      )}
+                      <LineChart data={trajectory}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
+                        <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                        <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                        <Tooltip contentStyle={{ backgroundColor: '#12121a', border: '1px solid #2a2a3a', borderRadius: 6, fontSize: 11 }} formatter={(value: number) => [value.toFixed(4), '']} />
+                        <Line type="monotone" dataKey="y" stroke="#6366f1" dot={false} strokeWidth={2} />
+                      </LineChart>
                     </ResponsiveContainer>
                   </div>
                 </Card>
 
-                <Card title="Velocity">
-                  <div className="h-44 mt-2">
+                <Card title="Velocity Over Time">
+                  <div className="h-40">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={trajectory} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2a" />
-                        <XAxis dataKey="timestamp" stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
-                        <YAxis stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
-                        <Tooltip contentStyle={{ backgroundColor: '#0f0f13', border: '1px solid #1e1e2a', borderRadius: 8, fontSize: 12, padding: '8px 12px' }} formatter={(value: number) => [value.toFixed(4), '']} />
-                        <Legend wrapperStyle={{ fontSize: 11, color: '#8b8b9e', paddingTop: 8 }} />
-                        <Line type="monotone" dataKey="v_linear" name="Linear" stroke="#34d399" dot={false} strokeWidth={1.5} />
-                        <Line type="monotone" dataKey="v_angular" name="Angular" stroke="#fbbf24" dot={false} strokeWidth={1.5} />
+                      <LineChart data={trajectory}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
+                        <XAxis dataKey="timestamp" stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                        <YAxis stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                        <Tooltip contentStyle={{ backgroundColor: '#12121a', border: '1px solid #2a2a3a', borderRadius: 6, fontSize: 11 }} formatter={(value: number) => [value.toFixed(4), '']} />
+                        <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
+                        <Line type="monotone" dataKey="v_linear" name="Linear (m/s)" stroke="#22c55e" dot={false} strokeWidth={1.5} />
+                        <Line type="monotone" dataKey="v_angular" name="Angular (rad/s)" stroke="#f59e0b" dot={false} strokeWidth={1.5} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
                 </Card>
 
                 {optimResult && (
-                  <Card title="Optimization Result">
-                    <div className="space-y-5 mt-1">
-                      <div className="flex items-baseline justify-between">
-                        <span className="text-[12px] text-solus-text-muted">Score</span>
-                        <div className="font-mono text-[13px]">
-                          <span className="text-red-400/70">{optimResult.bad_score.toFixed(4)}</span>
-                          <span className="text-solus-text-muted mx-2">&rarr;</span>
-                          <span className="text-emerald-400">{optimResult.best_score.toFixed(4)}</span>
-                          <span className="text-emerald-400/50 ml-2 text-[11px]">
-                            {((1 - optimResult.best_score / optimResult.bad_score) * 100).toFixed(0)}% better
-                          </span>
+                <Card title="AI Optimization Result">
+                  <div className="space-y-3">
+                    {/* Score improvement */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-solus-text-dim">Score improvement</span>
+                      <span className="text-sm font-mono font-semibold text-green-400">
+                        {optimResult.baseline_score.toFixed(4)} → {optimResult.best_score.toFixed(4)}
+                        {optimResult.baseline_score > 0 && (
+                          <> ({((1 - optimResult.best_score / optimResult.baseline_score) * 100).toFixed(0)}% better)</>
+                        )}
+                      </span>
+                    </div>
+
+                    {/* Gemini's explanation */}
+                    <div className="bg-solus-elevated/50 rounded-md p-3">
+                      <p className="text-xs text-solus-text-dim mb-1 font-semibold">AI Analysis</p>
+                      <p className="text-xs text-solus-text whitespace-pre-wrap">{optimResult.explanation}</p>
+                    </div>
+
+                    {/* Changes summary */}
+                    {optimResult.changes_summary.length > 0 && (
+                      <div>
+                        <p className="text-xs text-solus-text-dim mb-1 font-semibold">Changes Made</p>
+                        <ul className="text-xs text-solus-text space-y-0.5">
+                          {optimResult.changes_summary.map((c, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-solus-accent mt-0.5">•</span>
+                              <span>{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Graph constraints used */}
+                    {optimResult.graph_constraints_used.length > 0 && (
+                      <div>
+                        <p className="text-xs text-solus-text-dim mb-1 font-semibold">Context Model Constraints</p>
+                        <ul className="text-xs text-solus-text-muted space-y-0.5">
+                          {optimResult.graph_constraints_used.map((c, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-solus-warning mt-0.5">⚡</span>
+                              <span>{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Search space */}
+                    {Object.keys(optimResult.search_space).length > 0 && (
+                      <div>
+                        <p className="text-xs text-solus-text-dim mb-1 font-semibold">Search Space</p>
+                        <div className="grid grid-cols-2 gap-1">
+                          {Object.entries(optimResult.search_space).map(([key, range]) => (
+                            <div key={key} className="bg-solus-elevated rounded px-2 py-1 text-xs font-mono">
+                              <span className="text-solus-text-muted">{key}:</span>{' '}
+                              <span className="text-solus-text">[{(range as number[])[0]}, {(range as number[])[1]}]</span>
+                            </div>
+                          ))}
                         </div>
                       </div>
+                    )}
 
-                      <div className="grid grid-cols-3 gap-3">
-                        {Object.entries(optimResult.best_gains).map(([key, value]) => (
-                          <div key={key} className="bg-solus-bg rounded-lg px-4 py-3 text-center">
-                            <div className="text-[10px] text-solus-text-muted uppercase tracking-[0.1em] mb-1">{key}</div>
-                            <div className="text-[16px] font-mono text-solus-accent-bright">{value.toFixed(3)}</div>
+                    {/* Best params */}
+                    <div>
+                      <p className="text-xs text-solus-text-dim mb-1 font-semibold">Best Parameters</p>
+                      <div className="grid grid-cols-3 gap-1">
+                        {Object.entries(optimResult.best_params).filter(([, v]) => v != null).map(([key, value]) => (
+                          <div key={key} className="bg-solus-elevated rounded px-2 py-1 text-center">
+                            <div className="text-[10px] text-solus-text-muted">{key}</div>
+                            <div className="text-xs font-mono font-semibold text-solus-accent">
+                              {typeof value === 'number' ? value.toFixed(3) : String(value)}
+                            </div>
                           </div>
                         ))}
                       </div>
-
-                      <div className="text-[11px] text-solus-text-muted">{optimResult.trials_run} candidates tested</div>
-
-                      <div className="h-48 mt-1">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2a" />
-                            <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
-                            <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
-                            <Tooltip contentStyle={{ backgroundColor: '#0f0f13', border: '1px solid #1e1e2a', borderRadius: 8, fontSize: 12, padding: '8px 12px' }} />
-                            <Legend wrapperStyle={{ fontSize: 11, color: '#8b8b9e', paddingTop: 8 }} />
-                            <Line data={optimResult.bad_trajectory} dataKey="y" name="Before" stroke="#f87171" dot={false} strokeWidth={1.5} strokeDasharray="4 3" />
-                            <Line data={optimResult.best_trajectory} dataKey="y" name="After" stroke="#34d399" dot={false} strokeWidth={1.5} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
                     </div>
-                  </Card>
-                )}
 
-                <div className="pt-2">
-                  <button onClick={runComparison} disabled={comparing} className="flex items-center gap-2.5 px-6 py-3 text-[13px] font-medium rounded-lg bg-[#16161d] border border-[#2a2a3a] text-[#94a3b8] hover:text-[#e2e8f0] hover:border-[#3a3a4a] disabled:opacity-40 transition-colors cursor-pointer">
+                    <div className="text-xs text-solus-text-muted">
+                      Tested {optimResult.trials_run} candidates
+                      {optimResult.mjcf_changed && ' • Model XML modified'}
+                    </div>
+
+                    {/* Before/After trajectory overlay */}
+                    <div className="h-48">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
+                          <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                          <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                          <Tooltip contentStyle={{ backgroundColor: '#12121a', border: '1px solid #2a2a3a', borderRadius: 6, fontSize: 11 }} />
+                          <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
+                          <Line data={optimResult.baseline_trajectory} dataKey="y" name="Before" stroke="#ef4444" dot={false} strokeWidth={2} strokeDasharray="5 5" />
+                          <Line data={optimResult.best_trajectory} dataKey="y" name="After (optimized)" stroke="#22c55e" dot={false} strokeWidth={2} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </Card>
+              )}
+
+                <div className="flex items-center gap-2">
+                  <button onClick={runComparison} disabled={comparing}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-solus-text-dim bg-solus-elevated border border-solus-border rounded-md hover:bg-solus-surface transition-colors disabled:opacity-50 cursor-pointer">
                     {comparing ? <LoadingSpinner size="sm" /> : <ArrowRight size={14} />}
                     Compare Sim vs Runtime
                   </button>
+                  {discrepancies.length === 0 && !comparing && (
+                    <span className="text-xs text-solus-text-muted">Generates mock runtime data with noise for demo</span>
+                  )}
                 </div>
 
                 {discrepancies.length > 0 && (
-                  <Card title="Discrepancies">
-                    <table className="w-full text-[12px] mt-2">
+                  <Card title="Discrepancies (Sim vs Runtime)">
+                    <table className="w-full text-xs">
                       <thead>
-                        <tr className="border-b border-solus-border/30">
-                          <th className="text-left py-2.5 px-3 text-solus-text-muted font-normal">Signal</th>
-                          <th className="text-right py-2.5 px-3 text-solus-text-muted font-normal">Sim</th>
-                          <th className="text-right py-2.5 px-3 text-solus-text-muted font-normal">Real</th>
-                          <th className="text-right py-2.5 px-3 text-solus-text-muted font-normal">Delta</th>
-                          <th className="w-16"></th>
+                        <tr className="border-b border-solus-border">
+                          <th className="text-left py-2 px-2 text-solus-text-dim font-medium">Signal</th>
+                          <th className="text-right py-2 px-2 text-solus-text-dim font-medium">Simulated</th>
+                          <th className="text-right py-2 px-2 text-solus-text-dim font-medium">Observed</th>
+                          <th className="text-right py-2 px-2 text-solus-text-dim font-medium">Delta</th>
+                          <th className="text-right py-2 px-2"></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -495,7 +595,7 @@ export default function SimulatorTab() {
                     </table>
                   </Card>
                 )}
-              </div>
+              </>
             )}
           </div>
         </div>

@@ -91,10 +91,10 @@
   </worldbody>
 
   <actuator>
-    <velocity name="act_lf" joint="joint_lf" kv="0.5"/>
-    <velocity name="act_rf" joint="joint_rf" kv="0.5"/>
-    <velocity name="act_lr" joint="joint_lr" kv="0.5"/>
-    <velocity name="act_rr" joint="joint_rr" kv="0.5"/>
+    <velocity name="act_lf" joint="joint_lf" kv="20"/>
+    <velocity name="act_rf" joint="joint_rf" kv="20"/>
+    <velocity name="act_lr" joint="joint_lr" kv="20"/>
+    <velocity name="act_rr" joint="joint_rr" kv="20"/>
   </actuator>
 
   <sensor>
