@@ -263,14 +263,15 @@ export default function SimulatorTab() {
             </button>
           )}
           <button
-            onClick={() => setShowOptimizeInput(prev => !prev)}
+            onClick={runOptimization}
+            disabled={optimizing}
             className={`flex items-center gap-2.5 px-6 py-3 text-[13px] font-medium rounded-lg transition-colors cursor-pointer ${
-              showOptimizeInput
-                ? 'text-white bg-emerald-600 hover:bg-emerald-500'
+              optimizing
+                ? 'text-white bg-emerald-600'
                 : 'bg-[#16161d] border border-[#2a2a3a] text-[#94a3b8] hover:text-[#e2e8f0] hover:border-[#3a3a4a]'
             }`}
           >
-            Optimize
+            {optimizing ? <><LoadingSpinner size="sm" /> Optimizing...</> : 'Optimize'}
           </button>
           {optimResult && (
             <>
@@ -304,25 +305,6 @@ export default function SimulatorTab() {
         <div className="bg-solus-error/5 border-b border-solus-error/10 px-8 py-3 flex items-center gap-3">
           <AlertTriangle size={14} className="text-solus-error/60" />
           <span className="text-[12px] text-solus-error/70">{error}</span>
-        </div>
-      )}
-
-      {/* Optimize input */}
-      {showOptimizeInput && (
-        <div className="px-8 py-5 border-b border-solus-border/40 bg-solus-surface/20">
-          <div className="flex gap-3 items-center">
-            <span className="text-[11px] text-solus-text-muted shrink-0 uppercase tracking-[0.1em]">Goal</span>
-            <input
-              value={optimGoal}
-              onChange={e => setOptimGoal(e.target.value)}
-              placeholder=""
-              className={`${inputCls} flex-1`}
-            />
-            <button onClick={runOptimization} disabled={optimizing} className="flex items-center gap-2.5 px-6 py-3 text-[13px] font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 transition-colors cursor-pointer">
-              {optimizing ? <LoadingSpinner size="sm" /> : <Play size={14} />}
-              {optimizing ? 'Running...' : 'Optimize'}
-            </button>
-          </div>
         </div>
       )}
 
