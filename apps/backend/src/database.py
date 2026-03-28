@@ -196,11 +196,7 @@ def init_db():
     """)
     conn.commit()
     conn.close()
-<<<<<<< Updated upstream
-    print(f"Database initialized at {os.environ.get('SOLUS_DB_PATH', DB_PATH)}")
-=======
     print(f"Database initialized at {_get_db_path()}")
->>>>>>> Stashed changes
 
 
 if __name__ == "__main__":
