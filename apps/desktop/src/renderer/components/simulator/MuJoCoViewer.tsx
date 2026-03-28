@@ -425,31 +425,28 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
   }), [])
 
   // ── Render ──
-
-  if (status === 'loading') {
-    return (
-      <div className="h-[400px] flex items-center justify-center bg-solus-bg border border-solus-border rounded-lg">
-        <LoadingSpinner size="lg" label="Loading 3D model..." />
-      </div>
-    )
-  }
-
-  if (status === 'error') {
-    return (
-      <div className="h-[400px] flex items-center justify-center bg-solus-bg border border-solus-border rounded-lg">
-        <EmptyState
-          title="3D viewer unavailable"
-          description={`${errorMsg}. Using 2D charts.`}
-        />
-      </div>
-    )
-  }
+  // Always render the container div so containerRef is available when init runs.
+  // Loading/error states are overlaid on top.
 
   return (
     <div
       ref={containerRef}
-      className="h-[400px] w-full bg-solus-bg border border-solus-border rounded-lg overflow-hidden"
-    />
+      className="h-[400px] w-full bg-solus-bg border border-solus-border rounded-lg overflow-hidden relative"
+    >
+      {status === 'loading' && (
+        <div className="absolute inset-0 flex items-center justify-center bg-solus-bg z-10">
+          <LoadingSpinner size="lg" label="Loading 3D model..." />
+        </div>
+      )}
+      {status === 'error' && (
+        <div className="absolute inset-0 flex items-center justify-center bg-solus-bg z-10">
+          <EmptyState
+            title="3D viewer unavailable"
+            description={`${errorMsg}. Using 2D charts.`}
+          />
+        </div>
+      )}
+    </div>
   )
 })
 
