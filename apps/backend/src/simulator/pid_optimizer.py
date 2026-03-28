@@ -50,8 +50,8 @@ def simulate_with_pid(kp: float, ki: float, kd: float,
         # Without PID correction, this makes the heading drift increase over time.
         # Good PID counteracts it; bad PID lets it compound.
         steering_bias = 0.3
-        left_speed = base_angular_speed + steering_bias - correction
-        right_speed = base_angular_speed - steering_bias + correction
+        left_speed = base_angular_speed - steering_bias - correction
+        right_speed = base_angular_speed + steering_bias + correction
 
         # Differential drive kinematics
         v_left = left_speed * wheel_radius
