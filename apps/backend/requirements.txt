@@ -4,3 +4,5 @@ websockets==14.0
 pyserial==3.5
 google-generativeai==0.8.0
 python-multipart==0.0.18
+PyPDF2==3.0.1
+fpdf2==2.8.1
