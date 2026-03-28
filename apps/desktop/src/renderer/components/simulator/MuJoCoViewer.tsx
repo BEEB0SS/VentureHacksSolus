@@ -94,12 +94,28 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
       // Dynamically import mujoco-js (official DeepMind WASM bindings)
       const loadMujocoModule = await import('mujoco-js')
       const loadMujoco = loadMujocoModule.default
+      if (!loadMujoco) throw new Error('mujoco-js module has no default export')
       const mj = await loadMujoco()
+      if (!mj) throw new Error('mujoco-js loadMujoco() returned null')
       mujocoRef.current = mj
 
-      // Mount Emscripten MEMFS and create VFS directories
+      // Debug: log available API to find correct method names
+      console.log('[MuJoCo] Module keys:', Object.keys(mj).filter(k => !k.startsWith('_')).sort().join(', '))
+      console.log('[MuJoCo] Has FS:', !!mj.FS)
+      console.log('[MuJoCo] Has MjModel:', !!mj.MjModel)
+      console.log('[MuJoCo] Has Model:', !!mj.Model)
+      console.log('[MuJoCo] Has MEMFS:', !!mj.MEMFS)
+      console.log('[MuJoCo] Has mj_step:', !!mj.mj_step)
+
+      // Set up VFS — try MEMFS mount, fall back to just mkdir
       try { mj.FS.mkdir('/working') } catch (e: any) { /* exists */ }
-      mj.FS.mount(mj.MEMFS, { root: '.' }, '/working')
+      try {
+        if (mj.MEMFS) {
+          mj.FS.mount(mj.MEMFS, { root: '.' }, '/working')
+        }
+      } catch (e: any) {
+        console.log('[MuJoCo] MEMFS mount failed (may already be mounted):', e.message)
+      }
       try { mj.FS.mkdir('/working/meshes') } catch (e: any) { /* exists */ }
 
       // Fetch and write MJCF XML to VFS
@@ -117,9 +133,24 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
         mj.FS.writeFile(`/working/meshes/${meshName}`, meshBuf)
       }
 
-      // Load MuJoCo model (correct API: MjModel.loadFromXML + MjData)
-      const model = mj.MjModel.loadFromXML('/working/model.xml')
-      const data = new mj.MjData(model)
+      // Load MuJoCo model — try different API names
+      let model: any
+      let data: any
+      if (mj.MjModel?.loadFromXML) {
+        model = mj.MjModel.loadFromXML('/working/model.xml')
+        data = new mj.MjData(model)
+      } else if (mj.Model?.loadFromXML) {
+        model = mj.Model.loadFromXML('/working/model.xml')
+        data = new mj.Data(model)
+      } else if (mj.load) {
+        model = mj.load('/working/model.xml')
+        data = new mj.Simulation(model)
+      } else {
+        // Log all available constructors/functions for debugging
+        const fns = Object.keys(mj).filter(k => typeof mj[k] === 'function')
+        throw new Error(`Cannot find model loader. Available functions: ${fns.join(', ')}`)
+      }
+      console.log('[MuJoCo] Model loaded successfully')
       modelRef.current = model
       dataRef.current = data
 
@@ -132,7 +163,8 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
       setStatus('ready')
       onReady?.()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to initialize MuJoCo WASM'
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[MuJoCo] Init failed:', err)
       setStatus('error')
       setErrorMsg(msg)
       onError?.(msg)
