@@ -32,6 +32,7 @@ router = APIRouter(prefix="/api")
 # Shared instances
 _memory_store = MemoryStore()
 _simulator_instances: dict[str, MuJoCoSimulator] = {}
+_agent_instances: dict[str, SolusAgent] = {}
 
 
 def _get_simulator(project_id: str) -> MuJoCoSimulator:
@@ -42,11 +43,13 @@ def _get_simulator(project_id: str) -> MuJoCoSimulator:
 
 
 def _get_agent(project_id: str) -> SolusAgent:
-    """Create a SolusAgent with available dependencies."""
-    context_engine = None
-    if CONTEXT_ENGINE_AVAILABLE:
-        context_engine = ContextEngine(project_id)
-    return SolusAgent(context_engine=context_engine, memory_store=_memory_store)
+    """Get or create a SolusAgent for a project."""
+    if project_id not in _agent_instances:
+        context_engine = None
+        if CONTEXT_ENGINE_AVAILABLE:
+            context_engine = ContextEngine(project_id)
+        _agent_instances[project_id] = SolusAgent(context_engine=context_engine, memory_store=_memory_store)
+    return _agent_instances[project_id]
 
 
 # ── Request Models ──

@@ -95,8 +95,13 @@ class TestMemoryRoutes:
     def test_search_memory(self, project_id):
         app = _get_app()
         client = TestClient(app)
+        # Store 2 items so TF-IDF has corpus variance (single-doc IDF is zero)
         client.post(f"/api/projects/{project_id}/memory", json={
             "content": "TMC2209 stepper motor driver with UART interface",
+            "content_type": "datasheet",
+        })
+        client.post(f"/api/projects/{project_id}/memory", json={
+            "content": "MPU6050 IMU sensor calibration and drift correction",
             "content_type": "datasheet",
         })
         response = client.get(f"/api/projects/{project_id}/memory/search", params={
@@ -105,6 +110,8 @@ class TestMemoryRoutes:
         assert response.status_code == 200
         results = response.json()
         assert isinstance(results, list)
+        assert len(results) >= 1
+        assert "TMC2209" in results[0]["content"]
 
     def test_search_memory_with_filters(self, project_id):
         app = _get_app()

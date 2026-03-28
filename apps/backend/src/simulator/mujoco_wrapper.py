@@ -87,7 +87,7 @@ class MuJoCoSimulator:
 
         # Update stored position
         self._position = {"x": x, "y": y, "theta": theta}
-        self._trajectory = trajectory
+        self._trajectory.extend(trajectory)
         return trajectory
 
     def compare_with_runtime(
