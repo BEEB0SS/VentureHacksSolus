@@ -21,7 +21,8 @@ def pid_step(error: float, prev_error: float, integral: float,
 def simulate_with_pid(kp: float, ki: float, kd: float,
                        target_speed: float = 1.0, n_steps: int = 200,
                        dt: float = 0.01, initial_theta: float = 0.4,
-                       wheel_base: float = 0.17, wheel_radius: float = 0.0325) -> list[dict]:
+                       wheel_base: float = 0.17, wheel_radius: float = 0.0325,
+                       seed: int | None = None) -> list[dict]:
     """Run a differential drive simulation with PID heading correction.
 
     The robot tries to drive straight (target heading = 0). The PID controller
@@ -30,9 +31,16 @@ def simulate_with_pid(kp: float, ki: float, kd: float,
 
     Returns a trajectory: list of {x, y, theta, v_linear, v_angular, timestamp}.
     """
+    if seed is not None:
+        random.seed(seed)
     x, y, theta = 0.0, 0.0, initial_theta
     integral, prev_error = 0.0, 0.0
     trajectory = []
+
+    # Heading disturbances in the first 30% of the sim — simulates the robot
+    # struggling to find the line. After that it just drives with whatever
+    # heading it has (good PID corrects early, bad PID drifts permanently).
+    disturbance_steps = int(n_steps * 0.3)
 
     for step in range(n_steps):
         # Heading error: how far from theta=0 (straight ahead)
@@ -58,6 +66,11 @@ def simulate_with_pid(kp: float, ki: float, kd: float,
         x += v_linear * math.cos(theta) * dt
         y += v_linear * math.sin(theta) * dt
         theta += v_angular * dt
+
+        # Add heading noise in the early phase — random bumps as if
+        # the robot can't accurately find the line
+        if step < disturbance_steps:
+            theta += random.gauss(0, 0.02)
 
         trajectory.append({
             "x": round(x, 6),
