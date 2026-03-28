@@ -1,0 +1,49 @@
+<h2>How should the causal chain animate?</h2>
+<p class="subtitle">The BFS traces backwards from the anomaly node. How should we visualize each hop?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Ripple Wave (Recommended)</h3>
+      <p>The traversal animates <strong>hop by hop</strong> with a timed delay (300-500ms per hop). Starting node pulses red, then edges glow as they're traversed, then the next node lights up. The wave ripples outward like dropping a stone in water. Each hop adds to the chain — nothing disappears.</p>
+      <div style="margin-top: 12px; padding: 12px; background: #1a1a26; border-radius: 8px; font-family: monospace; font-size: 12px; color: #94a3b8;">
+        <div>t=0ms: <span style="color:#ef4444">●</span> motor_rpm (anomaly source, pulses red)</div>
+        <div>t=400ms: <span style="color:#ef4444">●</span>──<span style="color:#f59e0b; opacity:0.7">━━</span>──<span style="color:#f59e0b">●</span> NEMA17 (edge glows orange)</div>
+        <div>t=800ms: <span style="color:#f59e0b">●</span>──<span style="color:#eab308; opacity:0.7">━━</span>──<span style="color:#eab308">●</span> DRV8825 (next hop, yellow)</div>
+        <div>t=1200ms: <span style="color:#eab308">●</span>──<span style="color:#22c55e; opacity:0.7">━━</span>──<span style="color:#22c55e">●</span> motor_controller.py (root cause, green)</div>
+      </div>
+      <p style="margin-top: 8px; font-size: 12px; color: #64748b;">Color gradient from red (symptom) → orange → yellow → green (root cause). Confidence decays per hop.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Spotlight Scan</h3>
+      <p>Instead of a wave, a <strong>spotlight</strong> moves along the causal path. Only the currently-examined node and its edges are highlighted. Previous hops dim to a faint trail. Feels like a detective scanning through the system.</p>
+      <div style="margin-top: 12px; padding: 12px; background: #1a1a26; border-radius: 8px; font-family: monospace; font-size: 12px; color: #94a3b8;">
+        <div>t=0ms: <span style="color:#ef4444; font-size: 16px">●</span> motor_rpm (bright, focused)</div>
+        <div>t=400ms: <span style="color:#ef4444; opacity:0.3">●</span>──<span style="opacity:0.3">━━</span>──<span style="color:#ef4444; font-size: 16px">●</span> NEMA17 (spotlight moves)</div>
+        <div>t=800ms: <span style="opacity:0.2">●</span>──<span style="opacity:0.2">━━</span>──<span style="color:#ef4444; font-size: 16px">●</span> DRV8825 (previous dims)</div>
+        <div>t=1200ms: <span style="opacity:0.15">●</span>──<span style="opacity:0.15">━━</span>──<span style="color:#22c55e; font-size: 16px">●</span> motor_controller.py (root found!)</div>
+      </div>
+      <p style="margin-top: 8px; font-size: 12px; color: #64748b;">Focused attention, but you lose the full chain view until the end.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Full Chain Reveal</h3>
+      <p>No per-hop animation. The entire causal chain appears at once after a brief loading state, with the <strong>path highlighted as a colored trail</strong> from symptom to root cause. Simpler to implement, less dramatic but clearer.</p>
+      <div style="margin-top: 12px; padding: 12px; background: #1a1a26; border-radius: 8px; font-family: monospace; font-size: 12px; color: #94a3b8;">
+        <div>t=0ms: Loading... (spinner)</div>
+        <div>t=500ms: Full chain revealed:</div>
+        <div style="margin-top: 4px;"><span style="color:#ef4444">●</span>──<span style="color:#f59e0b">━━</span>──<span style="color:#f59e0b">●</span>──<span style="color:#eab308">━━</span>──<span style="color:#eab308">●</span>──<span style="color:#22c55e">━━</span>──<span style="color:#22c55e">●</span></div>
+        <div style="font-size: 10px; margin-top: 4px;">motor_rpm → NEMA17 → DRV8825 → motor_controller.py</div>
+      </div>
+      <p style="margin-top: 8px; font-size: 12px; color: #64748b;">Fast and clear, but no "wow" animation moment.</p>
+    </div>
+  </div>
+</div>

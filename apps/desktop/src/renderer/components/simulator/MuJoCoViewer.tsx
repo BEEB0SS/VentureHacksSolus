@@ -41,10 +41,8 @@ interface MuJoCoViewerProps {
 
 // ── Constants (module-level to avoid re-creation on render) ──
 
-const DEFAULT_MODEL_URL = '/models/elegoo-rover.xml'
-const DEFAULT_MESH_URLS = [
-  '/models/meshes/elegoo_v3_full.stl',
-]
+const DEFAULT_MODEL_URL = '/models/elegoo-rover-simple.xml'
+const DEFAULT_MESH_URLS: string[] = []
 
 // ── Component ──
 
