@@ -99,15 +99,15 @@ export default function SimulatorTab() {
       // Use the before/after trajectory based on toggle
       traj = viewingOptimized ? optimResult.best_trajectory : optimResult.bad_trajectory
     } else {
-      // No optimization yet — run backend kinematic sim to get a trajectory
+      // No optimization yet — run PID sim with bad gains (no correction = car drifts)
       if (!currentProjectId) return
       setBackendLoading(true)
       setError(null)
       try {
-        const res = await fetch(`${API_BASE}/api/projects/${currentProjectId}/simulator/run`, {
+        const res = await fetch(`${API_BASE}/api/projects/${currentProjectId}/simulator/run-pid`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ n_steps: nSteps, left_speed: leftSpeed, right_speed: rightSpeed, dt, parameters: params }),
+          body: JSON.stringify({ kp: 0, ki: 0, kd: 0, n_steps: nSteps, dt }),
         })
         if (!res.ok) throw new Error(`Simulation failed: ${res.statusText}`)
         const result = await res.json()

@@ -18,7 +18,7 @@ from packages.shared_types.src.models import (
 from .memory.memory_store import MemoryStore
 from .agent.solus_agent import SolusAgent
 from .simulator.mujoco_wrapper import MuJoCoSimulator
-from .simulator.pid_optimizer import optimize_pid
+from .simulator.pid_optimizer import optimize_pid, simulate_with_pid
 
 # ContextEngine — available now that Pratham has merged
 try:
@@ -76,6 +76,15 @@ class SimulatorCompareReq(BaseModel):
     sim_data: list[dict[str, Any]]
     runtime_data: list[dict[str, Any]]
     threshold: float = 0.01
+
+class RunPIDReq(BaseModel):
+    kp: float = 0.0
+    ki: float = 0.0
+    kd: float = 0.0
+    target_speed: float = 1.0
+    n_steps: int = 500
+    dt: float = 0.01
+    initial_theta: float = 0.1
 
 class OptimizePIDReq(BaseModel):
     n_trials: int = 100
@@ -181,6 +190,18 @@ async def compare_simulation(project_id: str, req: SimulatorCompareReq):
         "discrepancies": discrepancies,
         "match": len(discrepancies) == 0,
     }
+
+
+@router.post("/projects/{project_id}/simulator/run-pid")
+async def run_pid_simulation(project_id: str, req: RunPIDReq):
+    """Run a single PID simulation with given gains. Returns trajectory."""
+    trajectory = simulate_with_pid(
+        kp=req.kp, ki=req.ki, kd=req.kd,
+        target_speed=req.target_speed,
+        n_steps=req.n_steps, dt=req.dt,
+        initial_theta=req.initial_theta,
+    )
+    return {"trajectory": trajectory}
 
 
 @router.post("/projects/{project_id}/simulator/optimize")
