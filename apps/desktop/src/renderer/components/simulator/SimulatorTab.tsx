@@ -329,6 +329,24 @@ export default function SimulatorTab() {
             </div>
           </div>
 
+          {/* PID Gains — read-only, shows current policy */}
+          <div className="space-y-3">
+            <label className="text-[13px] text-solus-text-dim block">PID Gains</label>
+            {['kp', 'ki', 'kd'].map((key) => {
+              const value = optimResult && viewingOptimized
+                ? optimResult.best_gains[key as keyof typeof optimResult.best_gains]
+                : 0
+              return (
+                <div key={key} className="flex items-center justify-between">
+                  <span className="text-[12px] font-mono text-solus-text-muted uppercase">{key}</span>
+                  <span className={`text-[14px] font-mono ${optimResult && viewingOptimized ? 'text-emerald-400' : 'text-solus-text-dim'}`}>
+                    {value.toFixed(3)}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+
           {stepCount > 0 && (
             <div>
               <div className="flex justify-between text-[12px] font-mono text-solus-text-muted mb-2.5">
