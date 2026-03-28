@@ -1,6 +1,10 @@
 """
 Discovery API Route — trigger auto-relation discovery.
+
+Set SOLUS_DISCOVERY_ENABLED=false to disable this feature.
 """
+
+import os
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -10,6 +14,8 @@ from .context_engine import ContextEngine
 from .discovery_engine import DiscoveryEngine
 
 router = APIRouter(prefix="/api")
+
+DISCOVERY_ENABLED = os.environ.get("SOLUS_DISCOVERY_ENABLED", "true").lower() != "false"
 
 
 class DiscoverReq(BaseModel):
@@ -26,6 +32,8 @@ def _require_project(project_id: str):
 
 @router.post("/projects/{project_id}/discover")
 async def discover_relations(project_id: str, req: DiscoverReq = DiscoverReq()):
+    if not DISCOVERY_ENABLED:
+        raise HTTPException(status_code=403, detail="Auto-discovery is disabled (set SOLUS_DISCOVERY_ENABLED=true to enable)")
     _require_project(project_id)
     disco = DiscoveryEngine(project_id)
     report = disco.discover(
