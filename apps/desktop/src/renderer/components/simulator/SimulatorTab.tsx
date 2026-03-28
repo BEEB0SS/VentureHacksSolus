@@ -238,8 +238,8 @@ export default function SimulatorTab() {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between h-14 px-6 border-b border-solus-border/40 shrink-0">
-        <span className="text-[13px] font-medium text-solus-text tracking-wide">Simulator</span>
+      <div className="flex items-center justify-between h-14 px-8 border-b border-solus-border/40 shrink-0">
+        <span className="text-[14px] font-medium text-solus-text tracking-wide">Simulator</span>
         <div className="flex items-center gap-2">
           <button onClick={handleReset} className={btnGhost}>
             <RotateCcw size={14} /> Reset
@@ -290,7 +290,7 @@ export default function SimulatorTab() {
 
       {/* Error */}
       {error && (
-        <div className="bg-solus-error/5 border-b border-solus-error/10 px-6 py-2.5 flex items-center gap-3">
+        <div className="bg-solus-error/5 border-b border-solus-error/10 px-8 py-3 flex items-center gap-3">
           <AlertTriangle size={14} className="text-solus-error/60" />
           <span className="text-[12px] text-solus-error/70">{error}</span>
         </div>
@@ -298,7 +298,7 @@ export default function SimulatorTab() {
 
       {/* Optimize input */}
       {showOptimizeInput && (
-        <div className="px-6 py-4 border-b border-solus-border/40 bg-solus-surface/20">
+        <div className="px-8 py-5 border-b border-solus-border/40 bg-solus-surface/20">
           <div className="flex gap-3 items-center">
             <span className="text-[11px] text-solus-text-muted shrink-0 uppercase tracking-[0.1em]">Goal</span>
             <input
@@ -318,27 +318,27 @@ export default function SimulatorTab() {
       {/* Main */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left — Settings */}
-        <div className="w-56 border-r border-solus-border/40 overflow-y-auto p-5 space-y-5">
-          <div className="space-y-4">
+        <div className="w-60 border-r border-solus-border/40 overflow-y-auto px-7 py-7 space-y-7">
+          <div className="space-y-6">
             <div>
-              <label className="text-[12px] text-solus-text-dim mb-2 block">Steps</label>
+              <label className="text-[13px] text-solus-text-dim mb-2.5 block">Steps</label>
               <input type="number" value={nSteps} step={100} min={1}
                 onChange={e => setNSteps(parseInt(e.target.value) || 100)} className={inputCls} />
             </div>
             <div>
-              <label className="text-[12px] text-solus-text-dim mb-2 block">Playback Speed</label>
-              <div className="flex items-center gap-3">
+              <label className="text-[13px] text-solus-text-dim mb-2.5 block">Playback Speed</label>
+              <div className="flex items-center gap-4 mt-1">
                 <input type="range" min={0.25} max={4} step={0.25} value={playbackSpeed}
                   onChange={e => setPlaybackSpeed(parseFloat(e.target.value))}
                   className="flex-1" />
-                <span className="text-[11px] font-mono text-solus-text-muted w-8 text-right">{playbackSpeed}x</span>
+                <span className="text-[12px] font-mono text-solus-text-muted w-8 text-right">{playbackSpeed}x</span>
               </div>
             </div>
           </div>
 
           {stepCount > 0 && (
             <div>
-              <div className="flex justify-between text-[11px] font-mono text-solus-text-muted mb-2">
+              <div className="flex justify-between text-[12px] font-mono text-solus-text-muted mb-2.5">
                 <span>Progress</span>
                 <span>{stepCount} / {nSteps}</span>
               </div>
@@ -352,7 +352,7 @@ export default function SimulatorTab() {
 
         {/* Right — Viewer + Charts */}
         <div className="flex-1 overflow-y-auto">
-          <div className="p-6 space-y-6">
+          <div className="p-8 space-y-8">
             <MuJoCoViewer
               ref={viewerRef}
               playbackSpeed={playbackSpeed}
@@ -363,7 +363,7 @@ export default function SimulatorTab() {
             />
 
             {trajectory.length > 0 && (
-              <div className="space-y-6">
+              <div className="space-y-8">
                 <Card title="Trajectory">
                   <div className="h-52 mt-2">
                     <ResponsiveContainer width="100%" height="100%">
