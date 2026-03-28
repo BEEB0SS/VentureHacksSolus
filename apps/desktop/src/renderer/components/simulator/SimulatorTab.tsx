@@ -304,7 +304,7 @@ export default function SimulatorTab() {
             <input
               value={optimGoal}
               onChange={e => setOptimGoal(e.target.value)}
-              placeholder="e.g. Tune PID gains to drive straight..."
+              placeholder=""
               className={`${inputCls} flex-1`}
             />
             <button onClick={runOptimization} disabled={optimizing} className={btnSuccess}>
