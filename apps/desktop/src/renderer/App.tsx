@@ -6,50 +6,52 @@ import WorkspaceTab from './components/workspace/WorkspaceTab'
 import ContextModelTab from './components/context-model/ContextModelTab'
 import AgentTab from './components/agent/AgentTab'
 
-// Placeholders — teammates replace these when they merge
 const LiveBenchTab = () => (
   <div className="p-8 text-solus-text-dim">Live Bench — not built yet</div>
 )
 import SimulatorTab from './components/simulator/SimulatorTab'
 
 const TABS = [
-  { id: 'workspace', label: 'Workspace', icon: Boxes, component: WorkspaceTab },
-  { id: 'context', label: 'Context', icon: Network, component: ContextModelTab },
-  { id: 'agent', label: 'Agent', icon: Search, component: AgentTab },
-  { id: 'live-bench', label: 'Live Bench', icon: Activity, component: LiveBenchTab },
-  { id: 'simulator', label: 'Simulator', icon: Cpu, component: SimulatorTab },
+  { id: 'workspace', label: 'Workspace', icon: Boxes },
+  { id: 'context', label: 'Context', icon: Network },
+  { id: 'agent', label: 'Agent', icon: Search },
+  { id: 'live-bench', label: 'Live Bench', icon: Activity },
+  { id: 'simulator', label: 'Simulator', icon: Cpu },
 ] as const
+
+const TAB_COMPONENTS: Record<string, React.ComponentType<any>> = {
+  workspace: WorkspaceTab,
+  context: ContextModelTab,
+  agent: AgentTab,
+  'live-bench': LiveBenchTab,
+  simulator: SimulatorTab,
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('workspace')
-  const ActiveComponent =
-    TABS.find((t) => t.id === activeTab)?.component || WorkspaceTab
-
   const { projects, currentProjectId, fetchProjects, setCurrentProject, loading, error, clearError } = useProjectStore()
 
-  useEffect(() => {
-    fetchProjects()
-  }, [fetchProjects])
+  useEffect(() => { fetchProjects() }, [fetchProjects])
 
   useEffect(() => {
-    if (projects.length > 0 && !currentProjectId) {
-      setCurrentProject(projects[0].id)
-    }
+    if (projects.length > 0 && !currentProjectId) setCurrentProject(projects[0].id)
   }, [projects, currentProjectId, setCurrentProject])
 
   const currentProject = projects.find((p) => p.id === currentProjectId)
+  const ActiveComponent = TAB_COMPONENTS[activeTab] || WorkspaceTab
+  const needsProjectId = activeTab === 'context' || activeTab === 'agent'
 
   return (
     <div className="h-screen flex flex-col bg-solus-bg font-sans">
-      {/* Title bar — draggable on macOS */}
-      <div className="h-8 bg-solus-surface flex items-center px-4 border-b border-solus-border [-webkit-app-region:drag]">
-        <span className="text-xs font-mono text-solus-accent font-semibold tracking-wider">
+      {/* Title bar */}
+      <div className="h-9 bg-solus-bg flex items-center px-4 border-b border-solus-border/50 [-webkit-app-region:drag]">
+        <span className="text-[11px] font-mono text-solus-accent font-semibold tracking-[0.15em]">
           SOLUS
         </span>
-        <div className="ml-auto flex items-center gap-2 [-webkit-app-region:no-drag]">
+        <div className="ml-auto flex items-center gap-3 [-webkit-app-region:no-drag]">
           {loading.fetchProjects && <LoadingSpinner size="sm" />}
           {currentProject && (
-            <span className="text-xs text-solus-text-dim font-mono">
+            <span className="text-[11px] text-solus-text-muted font-mono">
               {currentProject.name}
             </span>
           )}
@@ -57,17 +59,17 @@ export default function App() {
       </div>
 
       {error && (
-        <div className="bg-solus-error/10 border-b border-solus-error/30 px-4 py-1.5 flex items-center justify-between">
-          <span className="text-xs text-solus-error">{error}</span>
-          <button onClick={clearError} className="text-xs text-solus-error hover:underline cursor-pointer">
+        <div className="bg-solus-error/5 border-b border-solus-error/20 px-4 py-1.5 flex items-center justify-between">
+          <span className="text-[11px] text-solus-error/80">{error}</span>
+          <button onClick={clearError} className="text-[11px] text-solus-error/60 hover:text-solus-error cursor-pointer">
             dismiss
           </button>
         </div>
       )}
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <nav className="w-14 bg-solus-surface border-r border-solus-border flex flex-col items-center py-3 gap-1">
+        {/* Sidebar — icon-only, minimal */}
+        <nav className="w-12 bg-solus-bg border-r border-solus-border/50 flex flex-col items-center pt-2 gap-0.5">
           {TABS.map((tab) => {
             const Icon = tab.icon
             const isActive = activeTab === tab.id
@@ -75,26 +77,23 @@ export default function App() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all cursor-pointer
-                  ${
-                    isActive
-                      ? 'bg-solus-accent/20 text-solus-accent-bright'
-                      : 'text-solus-text-muted hover:text-solus-text-dim hover:bg-solus-elevated'
+                className={`w-9 h-9 rounded-md flex items-center justify-center transition-colors cursor-pointer
+                  ${isActive
+                    ? 'bg-solus-accent/15 text-solus-accent-bright'
+                    : 'text-solus-text-muted hover:text-solus-text-dim'
                   }`}
                 title={tab.label}
               >
-                <Icon size={20} />
+                <Icon size={18} strokeWidth={isActive ? 2 : 1.5} />
               </button>
             )
           })}
         </nav>
 
-        {/* Main content area */}
+        {/* Content */}
         <main className="flex-1 overflow-auto">
-          {activeTab === 'context' && currentProjectId ? (
-            <ContextModelTab projectId={currentProjectId} />
-          ) : activeTab === 'agent' && currentProjectId ? (
-            <AgentTab projectId={currentProjectId} />
+          {needsProjectId && currentProjectId ? (
+            <ActiveComponent projectId={currentProjectId} />
           ) : (
             <ActiveComponent />
           )}

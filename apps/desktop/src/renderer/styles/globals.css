@@ -1,20 +1,55 @@
 @import "tailwindcss";
 
 @theme {
-  --color-solus-bg: #0a0a0f;
-  --color-solus-surface: #12121a;
-  --color-solus-elevated: #1a1a26;
-  --color-solus-border: #2a2a3a;
+  /* Background layers — subtle depth without heavy borders */
+  --color-solus-bg: #09090b;
+  --color-solus-surface: #0f0f13;
+  --color-solus-elevated: #16161d;
+  --color-solus-border: #1e1e2a;
+
+  /* Accent — single color, used sparingly */
   --color-solus-accent: #6366f1;
   --color-solus-accent-bright: #818cf8;
-  --color-solus-success: #22c55e;
-  --color-solus-warning: #f59e0b;
-  --color-solus-error: #ef4444;
-  --color-solus-text: #e2e8f0;
-  --color-solus-text-dim: #94a3b8;
-  --color-solus-text-muted: #64748b;
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --color-solus-accent-dim: #4f46e5;
+
+  /* Semantic */
+  --color-solus-success: #34d399;
+  --color-solus-warning: #fbbf24;
+  --color-solus-error: #f87171;
+
+  /* Text — four levels only */
+  --color-solus-text: #ebebf0;
+  --color-solus-text-dim: #8b8b9e;
+  --color-solus-text-muted: #4e4e62;
+
+  /* Typography — Geist for UI, JetBrains Mono for data */
+  --font-sans: 'Geist', 'Inter', -apple-system, system-ui, sans-serif;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+@font-face {
+  font-family: 'Geist';
+  src: url('https://cdn.jsdelivr.net/npm/geist@1.4.1/dist/fonts/geist-sans/Geist-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('https://cdn.jsdelivr.net/npm/geist@1.4.1/dist/fonts/geist-sans/Geist-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('https://cdn.jsdelivr.net/npm/geist@1.4.1/dist/fonts/geist-sans/Geist-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('https://cdn.jsdelivr.net/npm/geist@1.4.1/dist/fonts/geist-mono/GeistMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
 }
 
 * {
@@ -28,8 +63,48 @@ body {
   background: var(--color-solus-bg);
   color: var(--color-solus-text);
   font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-::-webkit-scrollbar { width: 6px; }
+/* Scrollbar — barely visible, appears on hover */
+::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #2a2a3a; border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: transparent; border-radius: 2px; }
+*:hover::-webkit-scrollbar-thumb { background: #2a2a3a; }
+
+/* Input reset */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] { -moz-appearance: textfield; }
+
+/* Focus ring */
+*:focus-visible {
+  outline: 1px solid var(--color-solus-accent);
+  outline-offset: -1px;
+  border-radius: 4px;
+}
+
+/* Range slider */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  background: var(--color-solus-border);
+  border-radius: 2px;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-solus-accent);
+  border: 2px solid var(--color-solus-bg);
+  cursor: pointer;
+}

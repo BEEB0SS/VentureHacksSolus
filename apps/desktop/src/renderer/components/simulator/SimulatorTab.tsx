@@ -225,190 +225,168 @@ export default function SimulatorTab() {
   }, [currentProjectId, trajectory])
 
   if (!currentProjectId) {
-    return <EmptyState title="No project selected" description="Select a project from the Workspace tab to use the simulator." />
+    return <EmptyState title="No project selected" description="Select a project from the Workspace tab." />
   }
+
+  // Shared input class
+  const inputCls = "w-full bg-solus-bg border border-solus-border/60 rounded-md px-2.5 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent/60 transition-colors"
+  // Shared button base
+  const btnBase = "flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-md transition-colors cursor-pointer"
+  const btnGhost = `${btnBase} text-solus-text-dim hover:text-solus-text hover:bg-solus-elevated`
+  const btnPrimary = `${btnBase} text-white bg-solus-accent hover:bg-solus-accent-bright disabled:opacity-40`
+  const btnSuccess = `${btnBase} text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40`
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-solus-border">
-        <div>
-          <h2 className="text-sm font-semibold text-solus-text">Simulator</h2>
-          <p className="text-xs text-solus-text-muted">
-            Differential drive simulation — adjust parameters and compare before/after optimization
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={handleReset} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-solus-text-dim bg-solus-elevated border border-solus-border rounded-md hover:bg-solus-surface transition-colors cursor-pointer">
-            <RotateCcw size={14} /> Reset
+      {/* Header — clean single row */}
+      <div className="flex items-center justify-between h-11 px-4 border-b border-solus-border/50 shrink-0">
+        <span className="text-[11px] font-medium text-solus-text-dim tracking-wide">Simulator</span>
+        <div className="flex items-center gap-1.5">
+          <button onClick={handleReset} className={btnGhost}>
+            <RotateCcw size={13} /> Reset
           </button>
+          <div className="w-px h-4 bg-solus-border/40 mx-0.5" />
           {playing ? (
-            <button onClick={handlePause} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-solus-warning rounded-md hover:opacity-90 transition-colors cursor-pointer">
-              <Pause size={14} /> Pause
+            <button onClick={handlePause} className={`${btnBase} text-white bg-amber-600 hover:bg-amber-500`}>
+              <Pause size={13} /> Pause
             </button>
           ) : (
-            <button onClick={handlePlay} disabled={backendLoading} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-solus-accent rounded-md hover:bg-solus-accent-bright transition-colors disabled:opacity-50 cursor-pointer">
-              {backendLoading ? <LoadingSpinner size="sm" /> : <Play size={14} />}
-              {optimResult ? (viewingOptimized ? 'Simulate (After)' : 'Simulate (Before)') : 'Run Simulation'}
+            <button onClick={handlePlay} disabled={backendLoading} className={btnPrimary}>
+              {backendLoading ? <LoadingSpinner size="sm" /> : <Play size={13} />}
+              {optimResult ? (viewingOptimized ? 'Simulate After' : 'Simulate Before') : 'Simulate'}
             </button>
           )}
           <button
             onClick={() => setShowOptimizeInput(prev => !prev)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-              showOptimizeInput
-                ? 'text-white bg-green-600'
-                : 'text-solus-text-dim bg-solus-elevated border border-solus-border hover:bg-solus-surface'
-            }`}
+            className={showOptimizeInput ? btnSuccess : btnGhost}
           >
             Optimize
           </button>
           {optimResult && (
-            <div className="flex items-center bg-solus-elevated border border-solus-border rounded-md overflow-hidden">
-              <button
-                onClick={() => { setViewingOptimized(false); setTrajectory(optimResult.bad_trajectory) }}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                  !viewingOptimized ? 'bg-red-600 text-white' : 'text-solus-text-dim hover:bg-solus-surface'
-                }`}
-              >
-                Before
-              </button>
-              <button
-                onClick={() => { setViewingOptimized(true); setTrajectory(optimResult.best_trajectory) }}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                  viewingOptimized ? 'bg-green-600 text-white' : 'text-solus-text-dim hover:bg-solus-surface'
-                }`}
-              >
-                After
-              </button>
-            </div>
+            <>
+              <div className="w-px h-4 bg-solus-border/40 mx-0.5" />
+              <div className="flex items-center rounded-md overflow-hidden border border-solus-border/40">
+                <button
+                  onClick={() => { setViewingOptimized(false); setTrajectory(optimResult.bad_trajectory) }}
+                  className={`px-2.5 py-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                    !viewingOptimized ? 'bg-red-500/20 text-red-400' : 'text-solus-text-muted hover:text-solus-text-dim'
+                  }`}
+                >
+                  Before
+                </button>
+                <div className="w-px h-3.5 bg-solus-border/40" />
+                <button
+                  onClick={() => { setViewingOptimized(true); setTrajectory(optimResult.best_trajectory) }}
+                  className={`px-2.5 py-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                    viewingOptimized ? 'bg-emerald-500/20 text-emerald-400' : 'text-solus-text-muted hover:text-solus-text-dim'
+                  }`}
+                >
+                  After
+                </button>
+              </div>
+            </>
           )}
         </div>
       </div>
 
-      {/* Error banner */}
+      {/* Error */}
       {error && (
-        <div className="bg-solus-error/10 border-b border-solus-error/30 px-4 py-1.5 flex items-center gap-2">
-          <AlertTriangle size={14} className="text-solus-error" />
-          <span className="text-xs text-solus-error">{error}</span>
+        <div className="bg-solus-error/5 border-b border-solus-error/15 px-4 py-1.5 flex items-center gap-2">
+          <AlertTriangle size={12} className="text-solus-error/70" />
+          <span className="text-[11px] text-solus-error/70">{error}</span>
         </div>
       )}
 
-      {/* Optimize input panel */}
+      {/* Optimize input */}
       {showOptimizeInput && (
-        <div className="px-4 py-3 border-b border-solus-border bg-solus-surface/50">
-          <label className="text-xs text-solus-text-dim mb-1.5 block">What do you want to optimize?</label>
-          <div className="flex gap-2">
+        <div className="px-4 py-2.5 border-b border-solus-border/50 bg-solus-surface/30">
+          <div className="flex gap-2 items-center">
+            <span className="text-[10px] text-solus-text-muted shrink-0 uppercase tracking-wider">Goal</span>
             <input
               value={optimGoal}
               onChange={e => setOptimGoal(e.target.value)}
               placeholder="e.g. Tune PID gains to drive straight..."
-              className="flex-1 bg-solus-elevated border border-solus-border rounded px-3 py-1.5 text-sm text-solus-text focus:outline-none focus:border-solus-accent"
+              className={`${inputCls} flex-1`}
             />
-            <button
-              onClick={runOptimization}
-              disabled={optimizing}
-              className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-500 transition-colors disabled:opacity-50 cursor-pointer"
-            >
-              {optimizing ? <LoadingSpinner size="sm" /> : <Play size={14} />}
-              {optimizing ? 'Optimizing...' : 'Run'}
+            <button onClick={runOptimization} disabled={optimizing} className={btnSuccess}>
+              {optimizing ? <LoadingSpinner size="sm" /> : <Play size={13} />}
+              {optimizing ? 'Running...' : 'Optimize'}
             </button>
           </div>
         </div>
       )}
 
-      {/* Main content */}
+      {/* Main */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Panel: Parameters */}
-        <div className="w-72 border-r border-solus-border overflow-y-auto p-4 space-y-4">
-          <Card title="Robot Parameters" compact>
-            <div className="space-y-3">
+        {/* Left — Parameters */}
+        <div className="w-60 border-r border-solus-border/50 overflow-y-auto p-3 space-y-3">
+          <Card title="Parameters" compact>
+            <div className="space-y-2.5">
               {Object.entries(PARAM_LABELS).map(([key, { label, unit, step }]) => (
                 <div key={key}>
-                  <label className="flex items-center justify-between text-xs text-solus-text-dim mb-1">
+                  <label className="flex items-center justify-between text-[11px] text-solus-text-dim mb-1">
                     <span>{label}</span>
-                    <span className="font-mono text-solus-text-muted">{unit}</span>
+                    <span className="font-mono text-solus-text-muted text-[10px]">{unit}</span>
                   </label>
                   <input type="number" value={params[key] ?? 0} step={step}
                     onChange={e => setParams(prev => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))}
-                    className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent" />
+                    className={inputCls} />
                 </div>
               ))}
             </div>
           </Card>
 
-          <Card title="Wheel Speeds (rad/s)" compact>
-            <div className="space-y-3">
+          <Card title="Wheel Speed" compact>
+            <div className="space-y-2.5">
               <div>
-                <label className="text-xs text-solus-text-dim mb-1 block">Left Wheel</label>
+                <label className="text-[11px] text-solus-text-dim mb-1 block">Left (rad/s)</label>
                 <input type="number" value={leftSpeed} step={0.5}
-                  onChange={e => setLeftSpeed(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent" />
+                  onChange={e => setLeftSpeed(parseFloat(e.target.value) || 0)} className={inputCls} />
               </div>
               <div>
-                <label className="text-xs text-solus-text-dim mb-1 block">Right Wheel</label>
+                <label className="text-[11px] text-solus-text-dim mb-1 block">Right (rad/s)</label>
                 <input type="number" value={rightSpeed} step={0.5}
-                  onChange={e => setRightSpeed(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent" />
+                  onChange={e => setRightSpeed(parseFloat(e.target.value) || 0)} className={inputCls} />
               </div>
             </div>
           </Card>
 
-          <Card title="Simulation Settings" compact>
-            <div className="space-y-3">
+          <Card title="Settings" compact>
+            <div className="space-y-2.5">
               <div>
-                <label className="text-xs text-solus-text-dim mb-1 block">Max Steps</label>
+                <label className="text-[11px] text-solus-text-dim mb-1 block">Steps</label>
                 <input type="number" value={nSteps} step={100} min={1}
-                  onChange={e => setNSteps(parseInt(e.target.value) || 100)}
-                  className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent" />
+                  onChange={e => setNSteps(parseInt(e.target.value) || 100)} className={inputCls} />
               </div>
               <div>
-                <label className="text-xs text-solus-text-dim mb-1 block">Time Step (s)</label>
-                <input type="number" value={dt} step={0.005} min={0.001}
-                  onChange={e => setDt(parseFloat(e.target.value) || 0.01)}
-                  className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent" />
-              </div>
-              <div>
-                <label className="text-xs text-solus-text-dim mb-1 block">Playback Speed</label>
+                <label className="text-[11px] text-solus-text-dim mb-1 block">Playback</label>
                 <div className="flex items-center gap-2">
                   <input type="range" min={0.25} max={4} step={0.25} value={playbackSpeed}
                     onChange={e => setPlaybackSpeed(parseFloat(e.target.value))}
                     className="flex-1" />
-                  <span className="text-xs font-mono text-solus-text w-10 text-right">{playbackSpeed}x</span>
+                  <span className="text-[10px] font-mono text-solus-text-muted w-8 text-right">{playbackSpeed}x</span>
                 </div>
               </div>
             </div>
           </Card>
 
-          {/* Step counter */}
           {stepCount > 0 && (
-            <Card title="Progress" compact>
-              <div className="font-mono text-xs text-solus-text">
-                <div className="flex justify-between">
-                  <span className="text-solus-text-dim">Steps</span>
-                  <span>{stepCount} / {nSteps}</span>
-                </div>
-                <div className="mt-2 h-1.5 bg-solus-elevated rounded-full overflow-hidden">
-                  <div className="h-full bg-solus-accent rounded-full transition-all"
-                    style={{ width: `${Math.min(100, (stepCount / nSteps) * 100)}%` }} />
-                </div>
+            <div className="px-1">
+              <div className="flex justify-between text-[10px] font-mono text-solus-text-muted mb-1">
+                <span>Progress</span>
+                <span>{stepCount}/{nSteps}</span>
               </div>
-            </Card>
+              <div className="h-1 bg-solus-border/30 rounded-full overflow-hidden">
+                <div className="h-full bg-solus-accent/60 rounded-full transition-all"
+                  style={{ width: `${Math.min(100, (stepCount / nSteps) * 100)}%` }} />
+              </div>
+            </div>
           )}
         </div>
 
-        {/* Right Panel: Viewer + Charts */}
+        {/* Right — Viewer + Charts */}
         <div className="flex-1 overflow-y-auto">
-          {/* Model source bar */}
-          <ModelSourceBar
-            activeSource={modelSource}
-            loading={modelLoading}
-            onLoadDefault={handleLoadDefault}
-            onUploadFile={handleUploadFile}
-            onImportOnshape={handleImportOnshape}
-          />
-
           <div className="p-4 space-y-4">
-            {/* 3D Viewer */}
             <MuJoCoViewer
               ref={viewerRef}
               playbackSpeed={playbackSpeed}
@@ -418,100 +396,96 @@ export default function SimulatorTab() {
               onError={() => {}}
             />
 
-            {/* Charts */}
             {trajectory.length > 0 && (
               <>
-                <Card title="Trajectory (X-Y Path)">
-                  <div className="h-48">
+                <Card title="Trajectory">
+                  <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={trajectory}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
-                        <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                        <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                        <Tooltip contentStyle={{ backgroundColor: '#12121a', border: '1px solid #2a2a3a', borderRadius: 6, fontSize: 11 }} formatter={(value: number) => [value.toFixed(4), '']} />
-                        <Line type="monotone" dataKey="y" stroke="#6366f1" dot={false} strokeWidth={2} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2a" />
+                        <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 10, fill: '#8b8b9e' }} />
+                        <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 10, fill: '#8b8b9e' }} />
+                        <Tooltip contentStyle={{ backgroundColor: '#0f0f13', border: '1px solid #1e1e2a', borderRadius: 6, fontSize: 11 }} formatter={(value: number) => [value.toFixed(4), '']} />
+                        <Line type="monotone" dataKey="y" stroke="#6366f1" dot={false} strokeWidth={1.5} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
                 </Card>
 
-                <Card title="Velocity Over Time">
-                  <div className="h-40">
+                <Card title="Velocity">
+                  <div className="h-36">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={trajectory}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
-                        <XAxis dataKey="timestamp" stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                        <YAxis stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                        <Tooltip contentStyle={{ backgroundColor: '#12121a', border: '1px solid #2a2a3a', borderRadius: 6, fontSize: 11 }} formatter={(value: number) => [value.toFixed(4), '']} />
-                        <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-                        <Line type="monotone" dataKey="v_linear" name="Linear (m/s)" stroke="#22c55e" dot={false} strokeWidth={1.5} />
-                        <Line type="monotone" dataKey="v_angular" name="Angular (rad/s)" stroke="#f59e0b" dot={false} strokeWidth={1.5} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2a" />
+                        <XAxis dataKey="timestamp" stroke="#4e4e62" tick={{ fontSize: 10, fill: '#8b8b9e' }} />
+                        <YAxis stroke="#4e4e62" tick={{ fontSize: 10, fill: '#8b8b9e' }} />
+                        <Tooltip contentStyle={{ backgroundColor: '#0f0f13', border: '1px solid #1e1e2a', borderRadius: 6, fontSize: 11 }} formatter={(value: number) => [value.toFixed(4), '']} />
+                        <Legend wrapperStyle={{ fontSize: 10, color: '#8b8b9e' }} />
+                        <Line type="monotone" dataKey="v_linear" name="Linear" stroke="#34d399" dot={false} strokeWidth={1.5} />
+                        <Line type="monotone" dataKey="v_angular" name="Angular" stroke="#fbbf24" dot={false} strokeWidth={1.5} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
                 </Card>
 
                 {optimResult && (
-                <Card title="Optimization Result">
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-solus-text-dim">Score improvement</span>
-                      <span className="text-sm font-mono font-semibold text-green-400">
-                        {optimResult.bad_score.toFixed(4)} → {optimResult.best_score.toFixed(4)}
-                        {' '}({((1 - optimResult.best_score / optimResult.bad_score) * 100).toFixed(0)}% better)
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      {Object.entries(optimResult.best_gains).map(([key, value]) => (
-                        <div key={key} className="bg-solus-elevated rounded px-2 py-1.5 text-center">
-                          <div className="text-xs text-solus-text-muted">{key.toUpperCase()}</div>
-                          <div className="text-sm font-mono font-semibold text-solus-accent">{value.toFixed(3)}</div>
+                  <Card title="Optimization">
+                    <div className="space-y-3">
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-[11px] text-solus-text-muted">Score</span>
+                        <div className="font-mono text-xs">
+                          <span className="text-red-400/70">{optimResult.bad_score.toFixed(4)}</span>
+                          <span className="text-solus-text-muted mx-1.5">&rarr;</span>
+                          <span className="text-emerald-400">{optimResult.best_score.toFixed(4)}</span>
+                          <span className="text-emerald-400/60 ml-1.5 text-[10px]">
+                            {((1 - optimResult.best_score / optimResult.bad_score) * 100).toFixed(0)}% better
+                          </span>
                         </div>
-                      ))}
-                    </div>
-                    <div className="text-xs text-solus-text-muted">
-                      Tested {optimResult.trials_run} candidates
-                    </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {Object.entries(optimResult.best_gains).map(([key, value]) => (
+                          <div key={key} className="bg-solus-bg rounded-md px-2 py-2 text-center">
+                            <div className="text-[9px] text-solus-text-muted uppercase tracking-wider">{key}</div>
+                            <div className="text-sm font-mono text-solus-accent-bright mt-0.5">{value.toFixed(3)}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="text-[10px] text-solus-text-muted">{optimResult.trials_run} candidates tested</div>
 
-                    {/* Before/After Trajectory Overlay */}
-                    <div className="h-48">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
-                          <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} label={{ value: 'x (m)', position: 'insideBottom', offset: -5, style: { fontSize: 10, fill: '#94a3b8' } }} />
-                          <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} label={{ value: 'y (m)', angle: -90, position: 'insideLeft', style: { fontSize: 10, fill: '#94a3b8' } }} />
-                          <Tooltip contentStyle={{ backgroundColor: '#12121a', border: '1px solid #2a2a3a', borderRadius: 6, fontSize: 11 }} />
-                          <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-                          <Line data={optimResult.bad_trajectory} dataKey="y" name="Before (no PID)" stroke="#ef4444" dot={false} strokeWidth={2} strokeDasharray="5 5" />
-                          <Line data={optimResult.best_trajectory} dataKey="y" name="After (optimized)" stroke="#22c55e" dot={false} strokeWidth={2} />
-                        </LineChart>
-                      </ResponsiveContainer>
+                      <div className="h-40">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2a" />
+                            <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 10, fill: '#8b8b9e' }} />
+                            <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 10, fill: '#8b8b9e' }} />
+                            <Tooltip contentStyle={{ backgroundColor: '#0f0f13', border: '1px solid #1e1e2a', borderRadius: 6, fontSize: 11 }} />
+                            <Legend wrapperStyle={{ fontSize: 10, color: '#8b8b9e' }} />
+                            <Line data={optimResult.bad_trajectory} dataKey="y" name="Before" stroke="#f87171" dot={false} strokeWidth={1.5} strokeDasharray="4 3" />
+                            <Line data={optimResult.best_trajectory} dataKey="y" name="After" stroke="#34d399" dot={false} strokeWidth={1.5} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
                     </div>
-                  </div>
-                </Card>
-              )}
+                  </Card>
+                )}
 
                 <div className="flex items-center gap-2">
-                  <button onClick={runComparison} disabled={comparing}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-solus-text-dim bg-solus-elevated border border-solus-border rounded-md hover:bg-solus-surface transition-colors disabled:opacity-50 cursor-pointer">
-                    {comparing ? <LoadingSpinner size="sm" /> : <ArrowRight size={14} />}
+                  <button onClick={runComparison} disabled={comparing} className={btnGhost}>
+                    {comparing ? <LoadingSpinner size="sm" /> : <ArrowRight size={13} />}
                     Compare Sim vs Runtime
                   </button>
-                  {discrepancies.length === 0 && !comparing && (
-                    <span className="text-xs text-solus-text-muted">Generates mock runtime data with noise for demo</span>
-                  )}
                 </div>
 
                 {discrepancies.length > 0 && (
-                  <Card title="Discrepancies (Sim vs Runtime)">
-                    <table className="w-full text-xs">
+                  <Card title="Discrepancies">
+                    <table className="w-full text-[11px]">
                       <thead>
-                        <tr className="border-b border-solus-border">
-                          <th className="text-left py-2 px-2 text-solus-text-dim font-medium">Signal</th>
-                          <th className="text-right py-2 px-2 text-solus-text-dim font-medium">Simulated</th>
-                          <th className="text-right py-2 px-2 text-solus-text-dim font-medium">Observed</th>
-                          <th className="text-right py-2 px-2 text-solus-text-dim font-medium">Delta</th>
-                          <th className="text-right py-2 px-2"></th>
+                        <tr className="border-b border-solus-border/40">
+                          <th className="text-left py-1.5 px-2 text-solus-text-muted font-normal">Signal</th>
+                          <th className="text-right py-1.5 px-2 text-solus-text-muted font-normal">Sim</th>
+                          <th className="text-right py-1.5 px-2 text-solus-text-muted font-normal">Real</th>
+                          <th className="text-right py-1.5 px-2 text-solus-text-muted font-normal">Delta</th>
+                          <th className="w-12"></th>
                         </tr>
                       </thead>
                       <tbody>
