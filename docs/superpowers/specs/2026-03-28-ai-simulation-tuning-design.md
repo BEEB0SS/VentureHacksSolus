@@ -2,35 +2,42 @@
 
 ## Overview
 
-Users type a natural language optimization goal (e.g., "Make the car follow a circular path", "Increase stability at high speeds", "Reduce energy consumption"). Gemini receives the current MJCF model XML, runtime parameters, and the goal. It reasons about what to change — modifying the MJCF XML, runtime parameters, PID gains, or control strategy — and returns the modified model + explanation. The frontend reloads the new model in MuJoCo WASM and shows before/after comparison.
+Users type a natural language optimization goal (e.g., "Make the car follow a circular path", "Increase stability at high speeds", "Minimize energy while reaching (1,0)"). The backend sends the goal + current MJCF XML + parameters to Gemini, which reasons about the problem and returns a **search strategy**: what parameters to tune, what ranges to search, how to score each trial, and optionally a modified MJCF. The backend then executes the search — running N simulations across the parameter space Gemini defined — and returns the best result with before/after trajectories and Gemini's explanation.
 
 ## Goals
 
 1. User types any optimization goal in plain English
-2. Gemini analyzes the current model + goal and decides what to change
-3. Gemini can modify anything: MJCF XML (body structure, geoms, actuators, friction, mass, joints) and/or runtime parameters (PID gains, wheel speeds, control strategy)
-4. Frontend reloads the modified model and runs before/after simulation
-5. Gemini explains what it changed and why
+2. Gemini analyzes the model + goal and designs the search: which parameters to tune, what ranges, and a scoring function
+3. Gemini can modify the MJCF XML itself (friction, mass, actuators, body structure — anything)
+4. Backend executes the parameter search using the existing kinematic simulator (fast, no MuJoCo dependency on server)
+5. Best result returned with before/after trajectories + explanation
+6. Frontend reloads modified model in MuJoCo WASM and shows comparison
 
 ## Non-Goals
 
-- Iterative optimization loops (single-shot reasoning only)
-- Guaranteed optimal results (Gemini's best guess, not mathematically proven)
-- Real-time parameter tuning during simulation
+- Multi-round Gemini iteration (Gemini reasons once, search executes mechanically)
+- Server-side MuJoCo physics (search uses kinematic sim for speed)
+- Guaranteed globally optimal results
 
 ---
 
 ## Architecture
 
-### Data Flow
+### Two-Phase Flow
 
+**Phase 1: Gemini designs the search (AI reasoning)**
 ```
-User types goal → Frontend sends goal + current MJCF + params to backend
-→ Backend sends to Gemini with structured prompt
-→ Gemini returns: modified MJCF XML + modified params + explanation
-→ Backend validates XML is parseable, returns to frontend
-→ Frontend shows explanation, reloads MuJoCo WASM with new model
-→ User clicks Before/After to compare old vs new simulation
+User goal + current MJCF + params → Gemini
+→ Returns: search_space, scoring_function, base_mjcf, explanation
+```
+
+**Phase 2: Backend executes the search (mechanical)**
+```
+For each of N trials:
+  Sample parameters from search_space
+  Run kinematic simulation with sampled params
+  Score trajectory using Gemini's scoring function
+Return best trial + before/after trajectories
 ```
 
 ### Backend Endpoint
@@ -47,26 +54,38 @@ User types goal → Frontend sends goal + current MJCF + params to backend
     "right_speed": 8.0,
     "pid_gains": { "kp": 0, "ki": 0, "kd": 0 },
     "target_speed": 1.0
-  }
+  },
+  "n_trials": 200
 }
 ```
 
 **Response:**
 ```json
 {
-  "new_mjcf": "<mujoco model=\"elegoo_smart_car_v4\">...</mujoco>",
+  "new_mjcf": "<mujoco ...>...</mujoco>",
   "new_params": {
-    "left_speed": 4.0,
+    "left_speed": 4.2,
     "right_speed": 8.0,
-    "pid_gains": { "kp": 2.5, "ki": 0.1, "kd": 0.3 },
+    "pid_gains": { "kp": 1.8, "ki": 0.05, "kd": 0.2 },
     "target_speed": 0.8
   },
-  "explanation": "To achieve a circular path with radius 0.5m, I adjusted the left/right wheel speed differential. The left wheel runs at 4.0 rad/s while the right runs at 8.0 rad/s, creating a consistent turning radius. I also increased wheel friction to 1.5 for better traction during turns and added PID gains to maintain the circular heading.",
+  "best_score": 0.023,
+  "baseline_score": 1.45,
+  "best_trajectory": [...],
+  "baseline_trajectory": [...],
+  "trials_run": 200,
+  "explanation": "To achieve a circular path, I defined a search over left_speed (2-7 rad/s) while keeping right_speed fixed at 8.0. The scoring function measures how close the trajectory's curvature matches the target radius of 0.5m. I also increased wheel friction to 1.5 in the MJCF for better traction during turns.",
   "changes_summary": [
-    "Left wheel speed: 6.0 → 4.0 rad/s",
-    "Wheel friction: 1.0 → 1.5",
-    "Added PID heading control: kp=2.5, ki=0.1, kd=0.3"
+    "Search: left_speed ∈ [2.0, 7.0], pid.kp ∈ [0.5, 3.0]",
+    "MJCF: wheel friction 1.0 → 1.5",
+    "Best: left_speed=4.2, kp=1.8, score=0.023"
   ],
+  "search_space": {
+    "left_speed": [2.0, 7.0],
+    "pid_kp": [0.5, 3.0],
+    "pid_ki": [0.0, 0.2],
+    "pid_kd": [0.0, 0.5]
+  },
   "mjcf_changed": true
 }
 ```
@@ -75,25 +94,43 @@ User types goal → Frontend sends goal + current MJCF + params to backend
 
 **System prompt:**
 ```
-You are a robotics simulation engineer working with MuJoCo. Given a MuJoCo MJCF model XML and an optimization goal from the user, analyze the model and determine what changes are needed to achieve the goal.
+You are a robotics simulation engineer. Given a MuJoCo MJCF model and an optimization goal, design a parameter search strategy to achieve the goal.
 
-You can modify:
-- The MJCF XML itself: body structure, geom properties (size, mass, friction, position), actuator settings (kv, ctrlrange, gear), joint properties (damping, armature), solver options, timestep — anything in the XML.
-- Runtime parameters: wheel speeds (left_speed, right_speed), PID controller gains (kp, ki, kd), target speed.
+You have two powers:
+1. MODIFY THE MODEL: You can change the MJCF XML — friction, mass, actuator kv, damping, body structure, geom sizes, anything. Return the full modified XML.
+2. DESIGN THE SEARCH: Define which runtime parameters to search over, their ranges, and a scoring function (as a Python expression) that evaluates trajectory quality. Lower score = better.
 
-Rules:
-- The model is a 4-wheel differential drive robot (Elegoo Smart Robot Car V4).
-- 4 velocity actuators: act_lf, act_rf, act_lr, act_rr (left-front, right-front, left-rear, right-rear).
-- Left pair (act_lf, act_lr) are controlled together. Right pair (act_rf, act_rr) are controlled together.
-- The PID controller corrects heading error (theta) by adjusting left/right speed differential.
-- Keep the model valid MuJoCo XML. Do not remove required elements.
-- Be specific about what you changed and why.
+The robot is a 4-wheel differential drive car (Elegoo Smart Robot Car V4):
+- 4 velocity actuators: act_lf, act_rf, act_lr, act_rr
+- Left pair controlled together, right pair controlled together
+- Optional PID heading controller: corrects theta error via left/right speed differential
 
-Return your response as JSON with these fields:
-- new_mjcf: The complete modified MJCF XML string (or null if no XML changes needed)
-- new_params: { left_speed, right_speed, pid_gains: { kp, ki, kd }, target_speed }
-- explanation: A clear explanation of what you changed and why
-- changes_summary: Array of short bullet strings describing each change
+Searchable parameters (you pick which ones and what ranges):
+- left_speed: left wheel angular velocity (rad/s)
+- right_speed: right wheel angular velocity (rad/s)
+- pid_kp: proportional gain
+- pid_ki: integral gain
+- pid_kd: derivative gain
+- target_speed: desired forward speed (m/s)
+- initial_theta: starting heading offset (radians)
+
+The scoring function receives a trajectory (list of {x, y, theta, v_linear, v_angular, timestamp}) and must return a float. Lower = better. Write it as a Python lambda or expression using these variables:
+- traj: the full trajectory list
+- p: a single trajectory point (use in list comprehensions)
+
+Examples of scoring functions:
+- Straight line: "sum(abs(p['y']) + abs(p['theta']) for p in traj) / len(traj)"
+- Circle radius R: "sum(abs(math.sqrt(p['x']**2 + p['y']**2) - R) for p in traj) / len(traj)"
+- Reach target: "math.sqrt((traj[-1]['x'] - tx)**2 + (traj[-1]['y'] - ty)**2)"
+- Minimize energy: "sum(abs(p['v_angular']) for p in traj) / len(traj)"
+
+Return JSON with these fields:
+- new_mjcf: Complete modified MJCF XML string, or null if no XML changes needed
+- search_space: Dict of {param_name: [min, max]} for parameters to search
+- scoring_function: Python expression string that scores a trajectory (lower = better)
+- fixed_params: Dict of parameters to hold constant (not searched)
+- explanation: What you changed in the model and why you chose this search strategy
+- changes_summary: Array of short bullet strings
 - mjcf_changed: boolean
 ```
 
@@ -108,29 +145,56 @@ Current parameters:
 Optimization goal: {goal}
 ```
 
+### Search Execution (ai_tuner.py)
+
+After Gemini responds:
+
+1. Parse Gemini's JSON response
+2. If `mjcf_changed`: validate the new XML is parseable
+3. Compile the `scoring_function` string into a callable Python function (using `eval` with a restricted namespace containing only `math` and `traj`)
+4. Run the baseline: simulate with current params, score it
+5. Run N trials:
+   - For each trial, sample each parameter uniformly from its `[min, max]` range
+   - Merge sampled params with `fixed_params`
+   - Run `simulate_with_pid()` from the existing kinematic simulator
+   - Score the trajectory using Gemini's scoring function
+   - Track best
+6. Return best params + trajectories + scores
+
+**Security note on eval:** The scoring function comes from Gemini (not user input) and runs in a restricted namespace with only `math` imported. No `os`, `sys`, `subprocess`, etc. For extra safety, wrap in a timeout.
+
 ### Frontend Changes
 
-**SimulatorTab additions:**
-1. The "Optimize" input already exists — reuse it
-2. When user clicks "Run" on the optimize panel, call `POST /api/projects/{id}/simulator/ai-tune` instead of the current random-search endpoint
+**SimulatorTab:**
+1. Reuse existing "Optimize" input and button
+2. On click: send goal + current MJCF (fetched from `/models/elegoo-rover.xml`) + current params to `POST /simulator/ai-tune`
 3. On response:
-   - Show Gemini's explanation in a card
-   - Show changes_summary as a bullet list
-   - If `mjcf_changed`: write the new MJCF to a blob URL and reload it in the viewer via a new `loadModelFromXml()` method on MuJoCoViewerHandle
-   - Update left/right speed + PID gains state from `new_params`
-   - Before button: reload original MJCF + original params
-   - After button: reload new MJCF + new params
+   - Store `optimResult` with new fields (explanation, changes_summary, search_space, scores)
+   - Show explanation card with Gemini's reasoning
+   - Show changes_summary as bullets
+   - Show search_space that was explored
+   - Show score improvement: baseline_score → best_score
+   - Before/After toggle:
+     - Before: reload original MJCF + baseline params → run in viewer
+     - After: reload new MJCF (if changed) + best params → run in viewer
+4. If `mjcf_changed`: call `viewerRef.current?.loadModelFromXml(new_mjcf)` to reload the 3D model
 
-**MuJoCoViewer additions:**
-- Add `loadModelFromXml(xml: string)` to the imperative handle — destroys current model/data, writes new XML to VFS, loads it, rebuilds geom meshes
+**MuJoCoViewer:**
+- Add `loadModelFromXml(xml: string)` to imperative handle:
+  1. Pause simulation
+  2. Delete old model/data
+  3. Write new XML to VFS
+  4. Load new model + data
+  5. Rebuild geom meshes
+  6. Reset trajectory
 
 ### Validation
 
-Backend validates Gemini's response before returning to frontend:
-- `new_mjcf` must be valid XML (basic parse check)
-- `new_params` must have expected fields with numeric values
-- If Gemini returns malformed JSON, retry once with a "fix your JSON" prompt
-- If still broken, return error to frontend
+- Gemini's `new_mjcf` must parse as valid XML
+- `scoring_function` must compile without errors (test with empty trajectory)
+- `search_space` must have at least one parameter with valid `[min, max]` range
+- If Gemini returns malformed JSON, retry once with "fix your JSON" prompt
+- If scoring function throws during a trial, skip that trial (don't crash the search)
 
 ---
 
@@ -140,23 +204,24 @@ Backend validates Gemini's response before returning to frontend:
 
 | File | Responsibility |
 |------|---------------|
-| `apps/backend/src/simulator/ai_tuner.py` | Gemini prompt construction, response parsing, XML validation |
+| `apps/backend/src/simulator/ai_tuner.py` | Gemini prompt, response parsing, search execution, scoring |
 
 ### Files to Modify
 
 | File | Change |
 |------|--------|
 | `apps/backend/src/routes_agent.py` | Add `POST /api/projects/{id}/simulator/ai-tune` endpoint |
-| `apps/desktop/src/renderer/components/simulator/SimulatorTab.tsx` | Wire optimize button to new endpoint, show explanation, handle model reload |
+| `apps/desktop/src/renderer/components/simulator/SimulatorTab.tsx` | Wire optimize to new endpoint, show Gemini explanation + search results |
 | `apps/desktop/src/renderer/components/simulator/MuJoCoViewer.tsx` | Add `loadModelFromXml()` to imperative handle |
 
 ---
 
 ## Success Criteria
 
-1. User types "Make the car drive in a circle" → Gemini adjusts wheel speeds and/or model → car drives in a circle in the 3D viewer
-2. User types "Make the car more stable" → Gemini adjusts friction, damping, mass distribution → car behaves more stably
-3. User types "Optimize PID gains for straight-line driving" → Gemini returns tuned kp/ki/kd → car corrects heading
-4. Before/After toggle shows the difference clearly
-5. Gemini's explanation is shown to the user so they understand what changed
-6. If MJCF was modified, the 3D viewer reloads with the new model geometry
+1. User types "Make the car drive in a circle" → Gemini designs search (left_speed range, circle-radius scoring) → search finds best params → car drives in circle in 3D viewer
+2. User types "Drive straight with minimal drift" → Gemini designs PID search + straight-line scoring → car corrects heading
+3. User types "Make the car more stable at high speeds" → Gemini modifies MJCF (increases friction, damping) + searches speed ranges → car is stable
+4. Before/After toggle shows clear improvement with score numbers
+5. Gemini's explanation is displayed so user understands the strategy
+6. Search space and scoring function are visible to the user
+7. If MJCF was modified, the 3D viewer reloads with updated model
