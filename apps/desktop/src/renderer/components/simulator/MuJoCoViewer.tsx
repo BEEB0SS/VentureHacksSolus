@@ -334,10 +334,13 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
         // We set the group's X and Y position; the -PI/2 rotation on the group
         // converts this to Three.js space automatically.
         // But rotation.x on the group is already set, so we translate in MuJoCo space:
+        // MuJoCo ground plane → Three.js scene coordinates
+        // MuJoCo X (forward) → Three.js X (horizontal)
+        // MuJoCo Y (lateral) → Three.js -Z (depth) — NOT Y (that's vertical!)
         car.position.x = point.x
-        car.position.y = point.y
+        car.position.z = -point.y
 
-        // Yaw rotation around MuJoCo Z axis
+        // Yaw: MuJoCo theta around Z → Three.js rotation around Y
         car.rotation.y = point.theta
 
         // Spin wheels based on forward velocity
@@ -400,7 +403,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
       const car = carGroupRef.current
       if (car && trajectory.length > 0) {
         car.position.x = trajectory[0].x
-        car.position.y = trajectory[0].y
+        car.position.z = -trajectory[0].y
         car.rotation.z = trajectory[0].theta
       }
     },
@@ -412,7 +415,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
       const car = carGroupRef.current
       if (car) {
         car.position.x = 0
-        car.position.y = 0
+        car.position.z = 0
         car.rotation.y = 0
       }
     },
