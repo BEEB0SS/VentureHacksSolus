@@ -18,6 +18,8 @@
 
 | File | Responsibility |
 |------|---------------|
+| `apps/backend/src/memory/__init__.py` | Empty package init (verify exists, create if not) |
+| `apps/backend/src/agent/__init__.py` | Empty package init (verify exists, create if not) |
 | `apps/backend/src/memory/memory_store.py` | TF-IDF semantic search, issue/fix storage, document chunk storage |
 | `apps/backend/src/agent/solus_agent.py` | Gemini-powered AI agent with query routing, context assembly, fallback |
 | `apps/backend/tests/test_memory_store.py` | Tests for memory store CRUD and TF-IDF similarity |
@@ -29,7 +31,7 @@
 
 | File | Used For |
 |------|----------|
-| `packages/shared-types/src/models.py` | SemanticMemoryItem, AgentQuery, AgentResponse, Entity, Relation, ChangeEvent, Issue, Fix |
+| `packages/shared_types/src/models.py` | SemanticMemoryItem, AgentQuery, AgentResponse, Entity, Relation, ChangeEvent, Issue, Fix |
 | `apps/backend/src/database.py` | `get_connection()`, `init_db()` — semantic_memory table already defined |
 | `apps/backend/src/context_engine.py` | ContextEngine class (being built in parallel — code against the interface) |
 
@@ -47,17 +49,22 @@
 
 - [ ] **Step 1: Create test infrastructure (if not already present)**
 
-Check if `apps/backend/tests/conftest.py` exists. If it does (created by Pratham's context engine agent), skip this step. If not, create these files:
+Check if `apps/backend/tests/conftest.py` exists. If it does (created by Pratham's context engine agent), **use it as-is** — do NOT overwrite it. Only create these files if they don't exist yet.
 
-Create `apps/backend/tests/__init__.py` (empty file).
+Also verify that `apps/backend/src/memory/__init__.py` and `apps/backend/src/agent/__init__.py` exist (they should from the initial scaffold). If not, create them as empty files.
 
-Create `apps/backend/tests/conftest.py`:
+Create `apps/backend/tests/__init__.py` (empty file, if not exists).
+
+Create `apps/backend/tests/conftest.py` (if not exists):
 
 ```python
 """Shared test fixtures for Solus backend tests."""
 
 import os
+import sys
 import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 
 @pytest.fixture(autouse=True)
 def fresh_db(tmp_path):
@@ -72,19 +79,24 @@ def fresh_db(tmp_path):
 @pytest.fixture
 def project_id(fresh_db):
     """Create a test project and return its ID."""
-    import sys
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
-    from packages.shared_types.src.models import Project, _uid, _now
-    from apps.backend.src.database import get_connection
-    pid = _uid()
-    conn = get_connection()
-    conn.execute(
-        "INSERT INTO projects (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-        (pid, "TestBot", "A test robot", _now(), _now()),
-    )
-    conn.commit()
-    conn.close()
-    return pid
+    # Prefer ContextEngine if available (Pratham's code), fall back to raw SQL
+    try:
+        from apps.backend.src.context_engine import ContextEngine
+        from packages.shared_types.src.models import Project
+        p = ContextEngine.create_project(Project(name="TestBot", description="A test robot"))
+        return p.id
+    except ImportError:
+        from packages.shared_types.src.models import _uid, _now
+        from apps.backend.src.database import get_connection
+        pid = _uid()
+        conn = get_connection()
+        conn.execute(
+            "INSERT INTO projects (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (pid, "TestBot", "A test robot", _now(), _now()),
+        )
+        conn.commit()
+        conn.close()
+        return pid
 ```
 
 - [ ] **Step 2: Write failing tests for basic storage**
@@ -179,13 +191,15 @@ using TF-IDF cosine similarity. Pure Python — no numpy or external ML libs.
 import json
 import math
 import re
+import sys
+import os
 from collections import Counter
 from typing import Optional
 
-from ..database import get_connection
-
-import sys, os
+# All imports use sys.path for consistency across the project
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../.."))
+
+from apps.backend.src.database import get_connection
 from packages.shared_types.src.models import SemanticMemoryItem, _uid, _now
 
 
@@ -215,11 +229,9 @@ class MemoryStore:
     """Semantic memory store backed by SQLite with TF-IDF similarity search."""
 
     def store(self, item: SemanticMemoryItem) -> SemanticMemoryItem:
-        """Store a semantic memory item in the database."""
-        if not item.id:
-            item.id = _uid()
-        if not item.created_at:
-            item.created_at = _now()
+        """Store a semantic memory item in the database.
+        Note: SemanticMemoryItem dataclass auto-generates id and created_at via default_factory.
+        """
         conn = get_connection()
         conn.execute(
             """INSERT INTO semantic_memory (id, project_id, content, content_type, metadata, embedding, created_at)
@@ -307,16 +319,17 @@ class MemoryStore:
 
         corpus_tokens = [_tokenize(row["content"]) for row in rows]
 
-        # Compute IDF across the corpus + query
-        all_docs = corpus_tokens + [query_tokens]
-        num_docs = len(all_docs)
+        # Compute IDF across the corpus only (exclude query to avoid bias)
+        num_docs = len(corpus_tokens)
+        if num_docs == 0:
+            return []
         doc_freq: Counter = Counter()
-        for doc in all_docs:
+        for doc in corpus_tokens:
             doc_freq.update(set(doc))
 
         idf: dict[str, float] = {}
         for term, df in doc_freq.items():
-            idf[term] = math.log(num_docs / df)
+            idf[term] = math.log((num_docs + 1) / (df + 1))  # +1 smoothing
 
         # Compute TF-IDF vector for the query
         query_tfidf = self._tfidf_vector(query_tokens, idf)
@@ -474,6 +487,24 @@ class TestMemoryStoreSimilarity:
         store = MemoryStore()
         results = store.find_similar("anything", project_id=project_id)
         assert results == []
+
+    def test_stop_words_only_query_returns_empty(self, project_id):
+        """Query made entirely of stop words should return empty (all tokens filtered)."""
+        store = self._seed_issues(project_id)
+        results = store.find_similar("the and or is it", project_id=project_id)
+        assert results == []
+
+    def test_store_document_chunk_default_doc_type(self, project_id):
+        """Verify the default doc_type='datasheet' works when not explicitly passed."""
+        from apps.backend.src.memory.memory_store import MemoryStore
+        store = MemoryStore()
+        item = store.store_document_chunk(
+            project_id=project_id,
+            content="TMC2209 supports UART interface",
+            doc_name="tmc2209.pdf",
+            chunk_index=0,
+        )
+        assert item.content_type == "datasheet"
 ```
 
 - [ ] **Step 2: Run tests to verify they pass**
@@ -506,7 +537,7 @@ The ContextEngine interface (being built in parallel):
 - `engine.get_subgraph(entity_id, depth=2)` → `{"entities": [...], "relations": [...]}`
 - `engine.impact_analysis(entity_id, depth=3)` → `list[Entity]`
 - `engine.list_changes()` → `list[ChangeEvent]`
-- `engine.list_entities()` → `list[Entity]`
+- `engine.list_entities(entity_type=None)` → `list[Entity]` (optional filter by EntityType)
 
 - [ ] **Step 1: Write failing tests for agent query routing and fallback**
 
@@ -631,11 +662,13 @@ Routes queries by type, builds context from the graph + memory + recent changes,
 and sends to Google Gemini for reasoning. Falls back gracefully when Gemini is unavailable.
 """
 
+import asyncio
 import os
 import json
+import sys
 from typing import Optional
 
-import sys
+# Consistent import strategy: sys.path for cross-package imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../.."))
 from packages.shared_types.src.models import (
     AgentQuery, AgentResponse, _uid, _now,
@@ -764,12 +797,16 @@ class SolusAgent:
     # ── Gemini Call ──
 
     async def _call_gemini(self, system_prompt: str, user_prompt: str) -> Optional[str]:
-        """Call Gemini API. Returns None if unavailable."""
+        """Call Gemini API. Returns None if unavailable.
+        Uses asyncio.to_thread to avoid blocking the event loop since
+        google-generativeai's generate_content() is synchronous."""
         if not self._gemini_model:
             return None
         try:
             full_prompt = f"{system_prompt}\n\n{user_prompt}"
-            response = self._gemini_model.generate_content(full_prompt)
+            response = await asyncio.to_thread(
+                self._gemini_model.generate_content, full_prompt
+            )
             return response.text
         except Exception:
             return None
@@ -1093,8 +1130,14 @@ git commit -m "feat: solus agent — query routing + context assembly + fallback
 Append to `apps/backend/tests/test_solus_agent.py`:
 
 ```python
+from packages.shared_types.src.models import (
+    Entity, EntityType, ChangeEvent, ChangeType, SourceType,
+)
+
+
 class FakeContextEngine:
-    """Minimal fake for testing agent context assembly without the real ContextEngine."""
+    """Minimal fake for testing agent context assembly without the real ContextEngine.
+    Uses real Entity and ChangeEvent objects to match the production ContextEngine interface."""
 
     def __init__(self, project_id):
         self.project_id = project_id
@@ -1114,19 +1157,29 @@ class FakeContextEngine:
         return self.get_full_graph()
 
     def impact_analysis(self, entity_id, depth=3):
-        """Return fake Entity-like objects."""
-        from types import SimpleNamespace
+        """Return real Entity objects matching the production interface."""
         return [
-            SimpleNamespace(id="e2", name="motor_controller.py", entity_type="software_module"),
+            Entity(
+                id="e2",
+                project_id=self.project_id,
+                name="motor_controller.py",
+                entity_type=EntityType.SOFTWARE_MODULE,
+                description="Stepper control code",
+            ),
         ]
 
     def list_changes(self):
-        from types import SimpleNamespace
+        """Return real ChangeEvent objects matching the production interface."""
         return [
-            SimpleNamespace(change_type="modified", entity_name="DRV8825", description="Voltage range changed"),
+            ChangeEvent(
+                project_id=self.project_id,
+                change_type=ChangeType.MODIFIED,
+                entity_name="DRV8825",
+                description="Voltage range changed",
+            ),
         ]
 
-    def list_entities(self):
+    def list_entities(self, entity_type=None):
         return []
 
 
