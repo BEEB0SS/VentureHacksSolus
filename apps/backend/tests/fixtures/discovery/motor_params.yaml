@@ -1,0 +1,18 @@
+# Motor configuration — references discoverable by config analyzer
+motor:
+  driver: DRV8825
+  step_mode: 16
+  max_current_a: 1.5
+  motor_type: NEMA17
+
+sensors:
+  imu:
+    address: "0x68"
+    topic: /imu/data
+  tof:
+    address: "0x29"
+    topic: /scan
+
+control:
+  velocity_topic: /cmd_vel
+  odometry_topic: /odom

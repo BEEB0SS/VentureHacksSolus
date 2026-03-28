@@ -326,3 +326,32 @@ class SemanticMemoryItem:
     metadata: dict[str, Any] = field(default_factory=dict)
     embedding: Optional[list[float]] = None
     created_at: str = field(default_factory=_now)
+
+
+# ──────────────────────────────────────────────
+# Auto-Discovery
+# ──────────────────────────────────────────────
+
+@dataclass
+class CandidateRelation:
+    """A relation inferred by auto-discovery, not yet in the graph."""
+    source_entity_id: str = ""
+    target_entity_id: str = ""
+    source_entity_name: str = ""
+    target_entity_name: str = ""
+    relation_type: RelationType = RelationType.CONNECTED_TO
+    confidence: float = 0.0
+    discovered_by: str = ""          # "python_ast" | "kicad_netlist" | "config_file"
+    evidence: str = ""               # human-readable explanation
+    added: bool = False              # True after auto-add succeeds
+
+
+@dataclass
+class DiscoveryReport:
+    """Results from running auto-discovery on a project."""
+    total_candidates: int = 0
+    new_relations: int = 0
+    duplicates_skipped: int = 0
+    boosted: int = 0
+    relations: list[CandidateRelation] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)

@@ -61,6 +61,16 @@ except ImportError as e:
         raise
     print("[warn] routes_agent not available — skipping")
 
+# Discovery routes
+try:
+    from .routes_discovery import router as discovery_router
+    app.include_router(discovery_router)
+    print("[ok] routes_discovery loaded")
+except ImportError as e:
+    if "routes_discovery" not in str(e):
+        raise
+    print("[warn] routes_discovery not available — skipping")
+
 
 @app.on_event("startup")
 async def startup():
@@ -87,5 +97,11 @@ async def health():
         loaded.append("routes_agent")
     except ImportError as e:
         if "routes_agent" not in str(e):
+            raise
+    try:
+        from . import routes_discovery  # noqa: F401
+        loaded.append("routes_discovery")
+    except ImportError as e:
+        if "routes_discovery" not in str(e):
             raise
     return {"status": "ok", "version": "0.1.0", "routers": loaded}
