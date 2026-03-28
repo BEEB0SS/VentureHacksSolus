@@ -46,7 +46,7 @@ export default function SimulatorTab() {
   const [params, setParams] = useState<Record<string, number>>({ ...DEFAULT_PARAMS })
   const [leftSpeed, setLeftSpeed] = useState(8.0)
   const [rightSpeed, setRightSpeed] = useState(8.0)
-  const [nSteps, setNSteps] = useState(2000)
+  const [nSteps, setNSteps] = useState(500)
   const [dt, setDt] = useState(0.01)
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0)
 
@@ -120,12 +120,24 @@ export default function SimulatorTab() {
       setBackendLoading(false)
     }
 
+    // Normalize trajectory to start at origin (backend sim accumulates position)
+    const x0 = traj[0]?.x ?? 0
+    const y0 = traj[0]?.y ?? 0
+    const theta0 = traj[0]?.theta ?? 0
+    const normalizedTraj = traj.map((p: TrajectoryPoint & { step?: number }, i: number) => ({
+      ...p,
+      x: p.x - x0,
+      y: p.y - y0,
+      theta: p.theta - theta0,
+      step: i + 1,
+    }))
+
     // Update charts
-    setTrajectory(traj.map((p: TrajectoryPoint & { step?: number }, i: number) => ({ ...p, step: i + 1 })))
-    setStepCount(traj.length)
+    setTrajectory(normalizedTraj)
+    setStepCount(normalizedTraj.length)
 
     // Animate in 3D viewer
-    viewerRef.current?.playTrajectory(traj)
+    viewerRef.current?.playTrajectory(normalizedTraj)
     setPlaying(true)
   }, [currentProjectId, nSteps, leftSpeed, rightSpeed, dt, params, optimResult, viewingOptimized])
 
