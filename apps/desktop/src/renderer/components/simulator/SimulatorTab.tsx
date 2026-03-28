@@ -56,7 +56,6 @@ export default function SimulatorTab() {
 
   // UI state
   const [playing, setPlaying] = useState(false)
-  const [wasmReady, setWasmReady] = useState(false)
   const [modelSource, setModelSource] = useState<'default' | 'upload' | 'onshape'>('default')
   const [modelLoading, setModelLoading] = useState(false)
   const [comparing, setComparing] = useState(false)
@@ -92,108 +91,70 @@ export default function SimulatorTab() {
     setShowOptimizeInput(false)
   }, [])
 
-  // Backend fallback simulation
-  const runBackendSimulation = useCallback(async () => {
-    if (!currentProjectId) return
-    setError(null)
-    try {
-      const res = await fetch(`${API_BASE}/api/projects/${currentProjectId}/simulator/run`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          n_steps: nSteps,
-          left_speed: leftSpeed,
-          right_speed: rightSpeed,
-          dt,
-          parameters: params,
-        }),
-      })
-      if (!res.ok) throw new Error(`Simulation failed: ${res.statusText}`)
-      const result = await res.json()
-      setTrajectory(result.trajectory.map((p: TrajectoryPoint & { step?: number }, i: number) => ({ ...p, step: i + 1 })))
-      setStepCount(result.trajectory.length)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Simulation failed')
-    }
-  }, [currentProjectId, nSteps, leftSpeed, rightSpeed, dt, params])
+  const handlePlay = useCallback(async () => {
+    // Pick the trajectory to play
+    let traj: TrajectoryPoint[]
 
-  const handlePlay = useCallback(() => {
-    // If we have optimization results, show the trajectory for the selected mode
     if (optimResult) {
-      const traj = viewingOptimized ? optimResult.best_trajectory : optimResult.bad_trajectory
-      setTrajectory(traj.map((p: TrajectoryPoint & { step?: number }, i: number) => ({ ...p, step: i + 1 })))
-      setStepCount(traj.length)
-      return
-    }
-    if (!wasmReady) {
-      // Fallback to backend
+      // Use the before/after trajectory based on toggle
+      traj = viewingOptimized ? optimResult.best_trajectory : optimResult.bad_trajectory
+    } else {
+      // No optimization yet — run backend kinematic sim to get a trajectory
+      if (!currentProjectId) return
       setBackendLoading(true)
-      runBackendSimulation().finally(() => setBackendLoading(false))
-      return
+      setError(null)
+      try {
+        const res = await fetch(`${API_BASE}/api/projects/${currentProjectId}/simulator/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ n_steps: nSteps, left_speed: leftSpeed, right_speed: rightSpeed, dt, parameters: params }),
+        })
+        if (!res.ok) throw new Error(`Simulation failed: ${res.statusText}`)
+        const result = await res.json()
+        traj = result.trajectory
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Simulation failed')
+        setBackendLoading(false)
+        return
+      }
+      setBackendLoading(false)
     }
-    viewerRef.current?.setControls(leftSpeed, rightSpeed)
-    viewerRef.current?.play()
+
+    // Update charts
+    setTrajectory(traj.map((p: TrajectoryPoint & { step?: number }, i: number) => ({ ...p, step: i + 1 })))
+    setStepCount(traj.length)
+
+    // Animate in 3D viewer
+    viewerRef.current?.playTrajectory(traj)
     setPlaying(true)
-  }, [wasmReady, leftSpeed, rightSpeed, runBackendSimulation, optimResult, viewingOptimized])
+  }, [currentProjectId, nSteps, leftSpeed, rightSpeed, dt, params, optimResult, viewingOptimized])
 
   const handlePause = useCallback(() => {
     viewerRef.current?.pause()
     setPlaying(false)
   }, [])
 
-  const handleTrajectoryUpdate = useCallback((traj: TrajectoryPoint[]) => {
-    setTrajectory([...traj])
-    setStepCount(traj.length)
+  const handleTrajectoryUpdate = useCallback((traj: TrajectoryPoint[], currentIndex: number) => {
+    setStepCount(currentIndex + 1)
   }, [])
 
   const handleSimComplete = useCallback(() => {
     setPlaying(false)
   }, [])
 
-  // Model loading handlers
+  // Model loading handlers (simplified — model loads automatically)
   const handleLoadDefault = useCallback(() => {
     setModelSource('default')
-    // Viewer loads default on mount, just reset
     handleReset()
   }, [handleReset])
 
-  const handleUploadFile = useCallback(async (xmlFile: File, meshFiles: File[]) => {
-    if (!viewerRef.current) return
-    setModelLoading(true)
-    try {
-      const xml = await xmlFile.text()
-      const meshMap = new Map<string, ArrayBuffer>()
-      for (const mf of meshFiles) {
-        meshMap.set(mf.name, await mf.arrayBuffer())
-      }
-      await viewerRef.current.loadModelFromXml(xml, meshMap)
-      setModelSource('upload')
-      handleReset()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load model')
-    } finally {
-      setModelLoading(false)
-    }
-  }, [handleReset])
+  const handleUploadFile = useCallback(async (_xmlFile: File, _meshFiles: File[]) => {
+    setError('Custom model upload not yet supported')
+  }, [])
 
-  const handleImportOnshape = useCallback(async (url: string) => {
-    if (!currentProjectId) return
-    setModelLoading(true)
-    try {
-      const res = await fetch(`${API_BASE}/api/projects/${currentProjectId}/simulator/import-onshape`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
-      })
-      if (!res.ok) throw new Error('Onshape import failed')
-      setModelSource('onshape')
-      handleReset()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Onshape import failed')
-    } finally {
-      setModelLoading(false)
-    }
-  }, [currentProjectId, handleReset])
+  const handleImportOnshape = useCallback(async (_url: string) => {
+    setError('Onshape import not yet supported')
+  }, [])
 
   const runOptimization = useCallback(async () => {
     if (!currentProjectId) return
@@ -262,7 +223,7 @@ export default function SimulatorTab() {
         <div>
           <h2 className="text-sm font-semibold text-solus-text">Simulator</h2>
           <p className="text-xs text-solus-text-muted">
-            {wasmReady ? 'MuJoCo WASM — real physics simulation' : 'Differential drive kinematics (WASM loading...)'}
+            Differential drive simulation — adjust parameters and compare before/after optimization
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -438,12 +399,11 @@ export default function SimulatorTab() {
             {/* 3D Viewer */}
             <MuJoCoViewer
               ref={viewerRef}
-              maxSteps={nSteps}
               playbackSpeed={playbackSpeed}
               onTrajectoryUpdate={handleTrajectoryUpdate}
               onSimComplete={handleSimComplete}
-              onReady={() => setWasmReady(true)}
-              onError={() => setWasmReady(false)}
+              onReady={() => {}}
+              onError={() => {}}
             />
 
             {/* Charts */}
