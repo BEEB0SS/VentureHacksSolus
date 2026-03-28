@@ -380,20 +380,51 @@ class ContextEngine:
 
     # ── Impact Analysis (BFS) ──
 
-    def _build_adjacency(self) -> dict[str, set[str]]:
+    def _build_adjacency(self, directed: bool = False) -> dict[str, set[str]]:
+        """Build adjacency map from relations.
+
+        If directed=True, edges only flow in the "impact" direction: from the
+        entity being changed toward entities that depend on it.  The direction
+        is inferred from the relation_type:
+
+        - connected_to, drives, impacts, configured_by: src → tgt AND tgt → src
+          (physical connections propagate both ways)
+        - depends_on, reads_from, subscribes_to: tgt → src
+          (the source depends on the target, so changing the target impacts the source)
+        - publishes: src → tgt
+          (publisher affects the topic/subscribers downstream)
+        - documented_by, observed_in, changed_by, resolved_by, similar_to:
+          src → tgt (informational link)
+
+        When directed=False (default), all edges are bidirectional (original behaviour).
+        """
         adj: dict[str, set[str]] = {}
         conn = get_connection()
-        rows = conn.execute("SELECT source_entity_id, target_entity_id FROM relations WHERE project_id = ?",
-                            (self.project_id,)).fetchall()
+        rows = conn.execute(
+            "SELECT source_entity_id, target_entity_id, relation_type FROM relations WHERE project_id = ?",
+            (self.project_id,),
+        ).fetchall()
         conn.close()
+
+        # Relation types where changing the *target* impacts the *source*
+        # (e.g. motor_controller depends_on ESP32 — changing ESP32 impacts motor_controller)
+        _REVERSE_IMPACT = {"depends_on", "reads_from", "subscribes_to"}
+
         for row in rows:
-            src, tgt = row["source_entity_id"], row["target_entity_id"]
-            adj.setdefault(src, set()).add(tgt)
-            adj.setdefault(tgt, set()).add(src)
+            src, tgt, rtype = row["source_entity_id"], row["target_entity_id"], row["relation_type"]
+            if not directed:
+                adj.setdefault(src, set()).add(tgt)
+                adj.setdefault(tgt, set()).add(src)
+            elif rtype in _REVERSE_IMPACT:
+                # Changing tgt impacts src (e.g. changing ESP32 impacts motor_controller)
+                adj.setdefault(tgt, set()).add(src)
+            else:
+                # Default: forward direction (src impacts tgt)
+                adj.setdefault(src, set()).add(tgt)
         return adj
 
     def impact_analysis(self, entity_id: str, depth: int = 3) -> list[Entity]:
-        adj = self._build_adjacency()
+        adj = self._build_adjacency(directed=True)
         visited: set[str] = set()
         queue: deque[tuple[str, int]] = deque([(entity_id, 0)])
         visited.add(entity_id)
