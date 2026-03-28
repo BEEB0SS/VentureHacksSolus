@@ -164,6 +164,79 @@ class ContextEngine:
         conn.close()
         return deleted
 
+    # ── Relation CRUD ──
+
+    def create_relation(self, relation: Relation) -> Relation:
+        relation.project_id = self.project_id
+        if not relation.id:
+            relation.id = _uid()
+        if not relation.created_at:
+            relation.created_at = _now()
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO relations (id, project_id, source_entity_id, target_entity_id, relation_type, metadata, confidence, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (relation.id, relation.project_id, relation.source_entity_id, relation.target_entity_id,
+             relation.relation_type.value if isinstance(relation.relation_type, RelationType) else relation.relation_type,
+             json.dumps(relation.metadata), relation.confidence, relation.created_at),
+        )
+        conn.commit()
+        conn.close()
+        return relation
+
+    def list_relations(self) -> list[Relation]:
+        conn = get_connection()
+        rows = conn.execute("SELECT * FROM relations WHERE project_id = ? ORDER BY created_at",
+                            (self.project_id,)).fetchall()
+        conn.close()
+        return [self._row_to_relation(r) for r in rows]
+
+    def delete_relation(self, relation_id: str) -> bool:
+        conn = get_connection()
+        cursor = conn.execute("DELETE FROM relations WHERE id = ? AND project_id = ?",
+                              (relation_id, self.project_id))
+        conn.commit()
+        deleted = cursor.rowcount > 0
+        conn.close()
+        return deleted
+
+    @staticmethod
+    def _row_to_relation(row) -> Relation:
+        return Relation(
+            id=row["id"], project_id=row["project_id"],
+            source_entity_id=row["source_entity_id"], target_entity_id=row["target_entity_id"],
+            relation_type=RelationType(row["relation_type"]),
+            metadata=json.loads(row["metadata"]) if row["metadata"] else {},
+            confidence=row["confidence"], created_at=row["created_at"],
+        )
+
+    # ── Graph Queries ──
+
+    def get_full_graph(self) -> dict:
+        return {
+            "entities": [self._entity_to_dict(e) for e in self.list_entities()],
+            "relations": [self._relation_to_dict(r) for r in self.list_relations()],
+        }
+
+    @staticmethod
+    def _entity_to_dict(entity: Entity) -> dict:
+        return {
+            "id": entity.id, "project_id": entity.project_id,
+            "entity_type": entity.entity_type.value if isinstance(entity.entity_type, EntityType) else entity.entity_type,
+            "name": entity.name, "description": entity.description, "metadata": entity.metadata,
+            "source": entity.source.value if isinstance(entity.source, SourceType) else entity.source,
+            "source_ref": entity.source_ref, "created_at": entity.created_at, "updated_at": entity.updated_at,
+        }
+
+    @staticmethod
+    def _relation_to_dict(relation: Relation) -> dict:
+        return {
+            "id": relation.id, "project_id": relation.project_id,
+            "source_entity_id": relation.source_entity_id, "target_entity_id": relation.target_entity_id,
+            "relation_type": relation.relation_type.value if isinstance(relation.relation_type, RelationType) else relation.relation_type,
+            "metadata": relation.metadata, "confidence": relation.confidence, "created_at": relation.created_at,
+        }
+
     @staticmethod
     def _row_to_entity(row) -> Entity:
         return Entity(
