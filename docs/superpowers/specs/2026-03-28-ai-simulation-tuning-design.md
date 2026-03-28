@@ -21,6 +21,44 @@ Users type a natural language optimization goal (e.g., "Make the car follow a ci
 
 ---
 
+## Context Model Integration
+
+The Robotics Context Model graph (entities + relations) is central to Solus. The AI tuner integrates with it at three levels:
+
+### 1. Graph as Context for Gemini
+
+When Gemini reasons about the optimization goal, it receives the project's context model graph alongside the MJCF and parameters. This lets Gemini reason about the full system:
+
+- "The DRV8825 motor driver has max current 2.5A — actuator torque should stay within that"
+- "The NEMA17 motor has rated torque 0.44Nm — I should constrain the search range accordingly"
+- "The 12V battery limits the voltage available to motors"
+- "motor_controller.py subscribes to /cmd_vel — the PID output should match that interface"
+
+The graph is retrieved via `ContextEngine(project_id).get_full_graph()` and serialized as a compact summary in the Gemini prompt.
+
+### 2. Graph-Informed Constraints
+
+Gemini uses the graph to set physically realistic constraints on the search space. For example:
+
+- If an entity `Battery (12V, 2000mAh)` exists → Gemini constrains motor voltage/current ranges
+- If a relation `DRV8825 --drives--> NEMA17` exists with metadata `{max_current: 1.5A}` → Gemini limits actuator force accordingly
+- If `motor_controller.py --subscribes_to--> /cmd_vel` → Gemini knows the control interface
+
+These constraints appear in the `explanation` and `changes_summary` so the user sees *why* certain ranges were chosen.
+
+### 3. Graph Updates After Tuning
+
+After the search completes and the user accepts the optimized parameters:
+
+- If the MJCF was modified (e.g., friction changed, mass redistributed), the backend creates ChangeEvents in the context model recording what changed
+- New entities can be created (e.g., if Gemini adds a geom to the MJCF, a corresponding entity appears in the graph)
+- Relations are updated if component connections changed
+- This feeds back into Demo A (Change Propagation) — the graph shows what was modified by the AI tuner and what might be impacted
+
+The graph update is triggered by the frontend calling a new endpoint `POST /api/projects/{id}/simulator/apply-tune` after the user clicks "Apply" on the optimization result.
+
+---
+
 ## Architecture
 
 ### Two-Phase Flow
@@ -59,6 +97,9 @@ Return best trial + before/after trajectories
 }
 ```
 
+The backend automatically fetches the project's context model graph and includes it in the Gemini prompt. The graph is NOT sent from the frontend — the backend reads it via `ContextEngine(project_id).get_full_graph()`.
+```
+
 **Response:**
 ```json
 {
@@ -86,9 +127,38 @@ Return best trial + before/after trajectories
     "pid_ki": [0.0, 0.2],
     "pid_kd": [0.0, 0.5]
   },
-  "mjcf_changed": true
+  "mjcf_changed": true,
+  "graph_constraints_used": [
+    "Battery 12V limits motor voltage",
+    "DRV8825 max current 2.5A constrains actuator force"
+  ]
 }
 ```
+
+### Graph Update Endpoint (post-optimization)
+
+`POST /api/projects/{id}/simulator/apply-tune`
+
+Called when user clicks "Apply" to accept the optimized result. Records changes in the context model.
+
+**Request:**
+```json
+{
+  "new_mjcf": "<mujoco ...>...</mujoco>",
+  "new_params": { ... },
+  "changes_summary": ["wheel friction 1.0 → 1.5", "actuator kv 20 → 25"]
+}
+```
+
+**Backend logic:**
+1. If `mjcf_changed`: diff the old and new MJCF to find what properties changed
+2. For each change, create a `ChangeEvent` in the context model:
+   - `change_type`: "modified"
+   - `entity_name`: the affected component (e.g., "wheel_lf_geom")
+   - `description`: "AI tuner changed friction from 1.0 to 1.5"
+3. If new geoms/bodies were added to the MJCF, create new entities in the graph
+4. Run impact analysis on modified entities to show downstream effects
+5. Return `{ "changes_logged": N, "impacted_entities": [...] }`
 
 ### Gemini Prompt Structure
 
@@ -142,7 +212,30 @@ Current MJCF model:
 Current parameters:
 {current_params}
 
+Project Context Model (entities and relations in this robot system):
+{graph_summary}
+
+Use the context model to inform your constraints. For example, if a battery entity
+shows 12V capacity, don't suggest parameters that would exceed that. If a motor
+driver has a max current rating, constrain actuator forces accordingly.
+
 Optimization goal: {goal}
+```
+
+The `{graph_summary}` is built by the backend from `ContextEngine.get_full_graph()`:
+```
+Entities:
+- DRV8825 (electrical_part): Stepper motor driver, max 2.5A, 8.2-45V
+- NEMA17 (mechanical_part): Stepper motor, 0.44Nm rated torque
+- motor_controller.py (software_module): Stepper control code
+- ESP32 (electrical_part): Main microcontroller
+- Battery (electrical_part): 12V, 2000mAh LiPo
+
+Relations:
+- DRV8825 --drives--> NEMA17
+- motor_controller.py --depends_on--> DRV8825
+- ESP32 --connected_to--> DRV8825
+- Battery --connected_to--> ESP32
 ```
 
 ### Search Execution (ai_tuner.py)
@@ -204,15 +297,23 @@ After Gemini responds:
 
 | File | Responsibility |
 |------|---------------|
-| `apps/backend/src/simulator/ai_tuner.py` | Gemini prompt, response parsing, search execution, scoring |
+| `apps/backend/src/simulator/ai_tuner.py` | Gemini prompt (with graph context), response parsing, search execution, scoring |
 
 ### Files to Modify
 
 | File | Change |
 |------|--------|
-| `apps/backend/src/routes_agent.py` | Add `POST /api/projects/{id}/simulator/ai-tune` endpoint |
-| `apps/desktop/src/renderer/components/simulator/SimulatorTab.tsx` | Wire optimize to new endpoint, show Gemini explanation + search results |
+| `apps/backend/src/routes_agent.py` | Add `POST /simulator/ai-tune` and `POST /simulator/apply-tune` endpoints |
+| `apps/desktop/src/renderer/components/simulator/SimulatorTab.tsx` | Wire optimize to new endpoint, show explanation + graph constraints, Apply button |
 | `apps/desktop/src/renderer/components/simulator/MuJoCoViewer.tsx` | Add `loadModelFromXml()` to imperative handle |
+
+### Existing Files Used
+
+| File | How Used |
+|------|----------|
+| `apps/backend/src/context_engine.py` | `get_full_graph()` for Gemini prompt context; entity CRUD + ChangeEvent creation for graph updates |
+| `apps/backend/src/simulator/pid_optimizer.py` | `simulate_with_pid()` reused for kinematic search trials |
+| `apps/backend/src/agent/solus_agent.py` | Gemini API pattern reused (import, configure, generate_content) |
 
 ---
 
@@ -221,7 +322,11 @@ After Gemini responds:
 1. User types "Make the car drive in a circle" → Gemini designs search (left_speed range, circle-radius scoring) → search finds best params → car drives in circle in 3D viewer
 2. User types "Drive straight with minimal drift" → Gemini designs PID search + straight-line scoring → car corrects heading
 3. User types "Make the car more stable at high speeds" → Gemini modifies MJCF (increases friction, damping) + searches speed ranges → car is stable
-4. Before/After toggle shows clear improvement with score numbers
-5. Gemini's explanation is displayed so user understands the strategy
-6. Search space and scoring function are visible to the user
-7. If MJCF was modified, the 3D viewer reloads with updated model
+4. Gemini references project graph entities in its reasoning (e.g., "DRV8825 max current constrains actuator force")
+5. `graph_constraints_used` in the response shows which graph entities informed the search
+6. Before/After toggle shows clear improvement with score numbers
+7. Gemini's explanation is displayed so user understands the strategy
+8. Search space and scoring function are visible to the user
+9. If MJCF was modified, the 3D viewer reloads with updated model
+10. "Apply" button records changes in the context model graph as ChangeEvents
+11. Impact analysis runs on modified entities, showing downstream effects in the Context Model tab
