@@ -43,9 +43,7 @@ interface MuJoCoViewerProps {
 
 const DEFAULT_MODEL_URL = '/models/elegoo-rover.xml'
 const DEFAULT_MESH_URLS = [
-  '/models/meshes/bottom_plate.stl',
-  '/models/meshes/top_plate.stl',
-  '/models/meshes/dead_plate.stl',
+  '/models/meshes/elegoo_v3_full.stl',
 ]
 
 // ── Component ──
