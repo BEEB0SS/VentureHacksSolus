@@ -50,4 +50,38 @@ The 5 demo flows we're presenting at the hackathon. Every feature must serve at 
 **Proves:** Design → simulation → runtime continuity.
 **Wow moment:** "Simulated turn radius is 15cm but Live Bench shows 22cm"
 
-#demos #hackathon #features
+---
+
+## Verified Test Scenarios (March 28, 2026)
+
+These queries have been tested end-to-end against the seeded "Differential Drive Robot" project and confirmed working. Use them for demo practice and regression testing.
+
+### Agent Tab — Debug (Demo C)
+- **Query:** "My motor keeps stalling at low RPM" (query type: Debug)
+- **Expected:** Agent finds similar past issue in memory (motor stall / microstepping fix), returns diagnosis with memory hits. Expand Sources to see similarity scores.
+
+### Agent Tab — Memory Panel (Demo C)
+- **Search:** "motor stall" in the Memory side panel
+- **Expected:** Returns seeded issue summaries and reference notes with similarity percentages and metadata tags.
+
+### Agent Tab — General Knowledge
+- **Query:** "What components are connected to the ESP32?"
+- **Expected:** Agent lists I2C bus, DRV8825, motor controller, sensor reader, and related components from the project graph.
+
+### Agent Tab — Impact Analysis (Demo A)
+- **Query type:** Impact → Select "DRV8825 (electrical part)" from dropdown
+- **Query:** "What breaks if I replace this with a TMC2209?"
+- **Expected:** Agent runs BFS impact analysis, returns impacted entities (NEMA17, motor_rpm) and explains how each is affected.
+
+### Agent Tab — Find Parts (Demo D)
+- **Query:** "Recommend a replacement motor driver for the DRV8825 that supports 1/8 microstepping and is compatible with our 12V battery"
+- **Expected:** Agent returns component recommendations grounded in the project's context model.
+
+### Context Tab — Graph + Impact
+- **Action:** Click DRV8825 node → "Analyze Impact" button
+- **Expected:** 2 nodes highlight red (NEMA17, motor_rpm). ESP32 impact shows 6 nodes.
+
+### Workspace Tab — Sources
+- **Expected:** Shows "Motor Controller PCB" (KiCad) and "Robot Firmware Repo" (GitHub) as synced sources.
+
+#demos #hackathon #features #testing
