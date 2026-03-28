@@ -172,3 +172,21 @@ async def compare_simulation(project_id: str, req: SimulatorCompareReq):
         "discrepancies": discrepancies,
         "match": len(discrepancies) == 0,
     }
+
+
+# ── Onshape Import (Mock) ──
+
+class OnshapeImportReq(BaseModel):
+    url: str
+
+@router.post("/projects/{project_id}/simulator/import-onshape")
+async def import_from_onshape(project_id: str, req: OnshapeImportReq):
+    """Mock Onshape import — returns default model. Real API integration added later."""
+    if not req.url.startswith("https://cad.onshape.com/"):
+        raise HTTPException(status_code=400, detail="Invalid Onshape URL. Must start with https://cad.onshape.com/")
+    return {
+        "status": "success",
+        "model_name": "elegoo-rover",
+        "model_url": "/models/elegoo-rover.xml",
+        "message": "Model imported successfully (demo mode)",
+    }
