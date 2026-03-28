@@ -44,9 +44,9 @@ export default function SimulatorTab() {
 
   // Parameters
   const [params, setParams] = useState<Record<string, number>>({ ...DEFAULT_PARAMS })
-  const [leftSpeed, setLeftSpeed] = useState(1.0)
-  const [rightSpeed, setRightSpeed] = useState(1.0)
-  const [nSteps, setNSteps] = useState(500)
+  const [leftSpeed, setLeftSpeed] = useState(8.0)
+  const [rightSpeed, setRightSpeed] = useState(8.0)
+  const [nSteps, setNSteps] = useState(2000)
   const [dt, setDt] = useState(0.01)
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0)
 

@@ -381,7 +381,10 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
       const data = dataRef.current
 
       if (mj && model && data && playingRef.current && stepCountRef.current < maxStepsRef.current) {
-        const stepsPerFrame = Math.max(1, Math.round(playbackSpeedRef.current))
+        // MuJoCo timestep is 0.002s. At 60fps we need ~8 steps/frame for real-time.
+        // playbackSpeed multiplies this (2x = 16 steps/frame = 2x real-time).
+        const baseStepsPerFrame = 8
+        const stepsPerFrame = Math.max(1, Math.round(baseStepsPerFrame * playbackSpeedRef.current))
 
         for (let i = 0; i < stepsPerFrame && stepCountRef.current < maxStepsRef.current; i++) {
           data.ctrl[0] = leftSpeedRef.current
