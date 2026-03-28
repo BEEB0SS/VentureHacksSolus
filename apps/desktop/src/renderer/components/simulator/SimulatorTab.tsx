@@ -66,7 +66,7 @@ export default function SimulatorTab() {
   // Optimization
   const [optimizing, setOptimizing] = useState(false)
   const [showOptimizeInput, setShowOptimizeInput] = useState(false)
-  const [optimGoal, setOptimGoal] = useState('Tune PID gains to drive a straight line with minimal drift')
+  const [optimGoal, setOptimGoal] = useState('')
   const [viewingOptimized, setViewingOptimized] = useState(false)
   const [optimResult, setOptimResult] = useState<{
     best_gains: { kp: number; ki: number; kd: number }
@@ -228,31 +228,30 @@ export default function SimulatorTab() {
     return <EmptyState title="No project selected" description="Select a project from the Workspace tab." />
   }
 
-  // Shared input class
-  const inputCls = "w-full bg-solus-bg border border-solus-border/60 rounded-md px-2.5 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent/60 transition-colors"
-  // Shared button base
-  const btnBase = "flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-md transition-colors cursor-pointer"
+  // Shared styles
+  const inputCls = "w-full bg-solus-bg border border-solus-border/50 rounded-lg px-3 py-2 text-[13px] font-mono text-solus-text focus:outline-none focus:border-solus-accent/50 transition-colors"
+  const btnBase = "flex items-center gap-2 px-4 py-2 text-[12px] font-medium rounded-lg transition-colors cursor-pointer"
   const btnGhost = `${btnBase} text-solus-text-dim hover:text-solus-text hover:bg-solus-elevated`
   const btnPrimary = `${btnBase} text-white bg-solus-accent hover:bg-solus-accent-bright disabled:opacity-40`
   const btnSuccess = `${btnBase} text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40`
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* Header — clean single row */}
-      <div className="flex items-center justify-between h-11 px-4 border-b border-solus-border/50 shrink-0">
-        <span className="text-[11px] font-medium text-solus-text-dim tracking-wide">Simulator</span>
-        <div className="flex items-center gap-1.5">
+      {/* Header */}
+      <div className="flex items-center justify-between h-14 px-6 border-b border-solus-border/40 shrink-0">
+        <span className="text-[13px] font-medium text-solus-text tracking-wide">Simulator</span>
+        <div className="flex items-center gap-2">
           <button onClick={handleReset} className={btnGhost}>
-            <RotateCcw size={13} /> Reset
+            <RotateCcw size={14} /> Reset
           </button>
-          <div className="w-px h-4 bg-solus-border/40 mx-0.5" />
+          <div className="w-px h-5 bg-solus-border/30 mx-1" />
           {playing ? (
             <button onClick={handlePause} className={`${btnBase} text-white bg-amber-600 hover:bg-amber-500`}>
-              <Pause size={13} /> Pause
+              <Pause size={14} /> Pause
             </button>
           ) : (
             <button onClick={handlePlay} disabled={backendLoading} className={btnPrimary}>
-              {backendLoading ? <LoadingSpinner size="sm" /> : <Play size={13} />}
+              {backendLoading ? <LoadingSpinner size="sm" /> : <Play size={14} />}
               {optimResult ? (viewingOptimized ? 'Simulate After' : 'Simulate Before') : 'Simulate'}
             </button>
           )}
@@ -264,21 +263,21 @@ export default function SimulatorTab() {
           </button>
           {optimResult && (
             <>
-              <div className="w-px h-4 bg-solus-border/40 mx-0.5" />
-              <div className="flex items-center rounded-md overflow-hidden border border-solus-border/40">
+              <div className="w-px h-5 bg-solus-border/30 mx-1" />
+              <div className="flex items-center rounded-lg overflow-hidden border border-solus-border/30">
                 <button
                   onClick={() => { setViewingOptimized(false); setTrajectory(optimResult.bad_trajectory) }}
-                  className={`px-2.5 py-1 text-[10px] font-medium transition-colors cursor-pointer ${
-                    !viewingOptimized ? 'bg-red-500/20 text-red-400' : 'text-solus-text-muted hover:text-solus-text-dim'
+                  className={`px-4 py-1.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                    !viewingOptimized ? 'bg-red-500/15 text-red-400' : 'text-solus-text-muted hover:text-solus-text-dim'
                   }`}
                 >
                   Before
                 </button>
-                <div className="w-px h-3.5 bg-solus-border/40" />
+                <div className="w-px h-4 bg-solus-border/30" />
                 <button
                   onClick={() => { setViewingOptimized(true); setTrajectory(optimResult.best_trajectory) }}
-                  className={`px-2.5 py-1 text-[10px] font-medium transition-colors cursor-pointer ${
-                    viewingOptimized ? 'bg-emerald-500/20 text-emerald-400' : 'text-solus-text-muted hover:text-solus-text-dim'
+                  className={`px-4 py-1.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                    viewingOptimized ? 'bg-emerald-500/15 text-emerald-400' : 'text-solus-text-muted hover:text-solus-text-dim'
                   }`}
                 >
                   After
@@ -291,17 +290,17 @@ export default function SimulatorTab() {
 
       {/* Error */}
       {error && (
-        <div className="bg-solus-error/5 border-b border-solus-error/15 px-4 py-1.5 flex items-center gap-2">
-          <AlertTriangle size={12} className="text-solus-error/70" />
-          <span className="text-[11px] text-solus-error/70">{error}</span>
+        <div className="bg-solus-error/5 border-b border-solus-error/10 px-6 py-2.5 flex items-center gap-3">
+          <AlertTriangle size={14} className="text-solus-error/60" />
+          <span className="text-[12px] text-solus-error/70">{error}</span>
         </div>
       )}
 
       {/* Optimize input */}
       {showOptimizeInput && (
-        <div className="px-4 py-2.5 border-b border-solus-border/50 bg-solus-surface/30">
-          <div className="flex gap-2 items-center">
-            <span className="text-[10px] text-solus-text-muted shrink-0 uppercase tracking-wider">Goal</span>
+        <div className="px-6 py-4 border-b border-solus-border/40 bg-solus-surface/20">
+          <div className="flex gap-3 items-center">
+            <span className="text-[11px] text-solus-text-muted shrink-0 uppercase tracking-[0.1em]">Goal</span>
             <input
               value={optimGoal}
               onChange={e => setOptimGoal(e.target.value)}
@@ -309,7 +308,7 @@ export default function SimulatorTab() {
               className={`${inputCls} flex-1`}
             />
             <button onClick={runOptimization} disabled={optimizing} className={btnSuccess}>
-              {optimizing ? <LoadingSpinner size="sm" /> : <Play size={13} />}
+              {optimizing ? <LoadingSpinner size="sm" /> : <Play size={14} />}
               {optimizing ? 'Running...' : 'Optimize'}
             </button>
           </div>
@@ -319,34 +318,32 @@ export default function SimulatorTab() {
       {/* Main */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left — Settings */}
-        <div className="w-52 border-r border-solus-border/50 overflow-y-auto p-3 space-y-3">
-          <Card title="Settings" compact>
-            <div className="space-y-2.5">
-              <div>
-                <label className="text-[11px] text-solus-text-dim mb-1 block">Steps</label>
-                <input type="number" value={nSteps} step={100} min={1}
-                  onChange={e => setNSteps(parseInt(e.target.value) || 100)} className={inputCls} />
-              </div>
-              <div>
-                <label className="text-[11px] text-solus-text-dim mb-1 block">Playback</label>
-                <div className="flex items-center gap-2">
-                  <input type="range" min={0.25} max={4} step={0.25} value={playbackSpeed}
-                    onChange={e => setPlaybackSpeed(parseFloat(e.target.value))}
-                    className="flex-1" />
-                  <span className="text-[10px] font-mono text-solus-text-muted w-8 text-right">{playbackSpeed}x</span>
-                </div>
+        <div className="w-56 border-r border-solus-border/40 overflow-y-auto p-5 space-y-5">
+          <div className="space-y-4">
+            <div>
+              <label className="text-[12px] text-solus-text-dim mb-2 block">Steps</label>
+              <input type="number" value={nSteps} step={100} min={1}
+                onChange={e => setNSteps(parseInt(e.target.value) || 100)} className={inputCls} />
+            </div>
+            <div>
+              <label className="text-[12px] text-solus-text-dim mb-2 block">Playback Speed</label>
+              <div className="flex items-center gap-3">
+                <input type="range" min={0.25} max={4} step={0.25} value={playbackSpeed}
+                  onChange={e => setPlaybackSpeed(parseFloat(e.target.value))}
+                  className="flex-1" />
+                <span className="text-[11px] font-mono text-solus-text-muted w-8 text-right">{playbackSpeed}x</span>
               </div>
             </div>
-          </Card>
+          </div>
 
           {stepCount > 0 && (
-            <div className="px-1">
-              <div className="flex justify-between text-[10px] font-mono text-solus-text-muted mb-1">
+            <div>
+              <div className="flex justify-between text-[11px] font-mono text-solus-text-muted mb-2">
                 <span>Progress</span>
-                <span>{stepCount}/{nSteps}</span>
+                <span>{stepCount} / {nSteps}</span>
               </div>
-              <div className="h-1 bg-solus-border/30 rounded-full overflow-hidden">
-                <div className="h-full bg-solus-accent/60 rounded-full transition-all"
+              <div className="h-1.5 bg-solus-border/20 rounded-full overflow-hidden">
+                <div className="h-full bg-solus-accent/50 rounded-full transition-all"
                   style={{ width: `${Math.min(100, (stepCount / nSteps) * 100)}%` }} />
               </div>
             </div>
@@ -355,7 +352,7 @@ export default function SimulatorTab() {
 
         {/* Right — Viewer + Charts */}
         <div className="flex-1 overflow-y-auto">
-          <div className="p-4 space-y-4">
+          <div className="p-6 space-y-6">
             <MuJoCoViewer
               ref={viewerRef}
               playbackSpeed={playbackSpeed}
@@ -366,15 +363,15 @@ export default function SimulatorTab() {
             />
 
             {trajectory.length > 0 && (
-              <>
+              <div className="space-y-6">
                 <Card title="Trajectory">
-                  <div className="h-44">
+                  <div className="h-52 mt-2">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={trajectory}>
+                      <LineChart data={trajectory} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2a" />
-                        <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 10, fill: '#8b8b9e' }} />
-                        <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 10, fill: '#8b8b9e' }} />
-                        <Tooltip contentStyle={{ backgroundColor: '#0f0f13', border: '1px solid #1e1e2a', borderRadius: 6, fontSize: 11 }} formatter={(value: number) => [value.toFixed(4), '']} />
+                        <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
+                        <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
+                        <Tooltip contentStyle={{ backgroundColor: '#0f0f13', border: '1px solid #1e1e2a', borderRadius: 8, fontSize: 12, padding: '8px 12px' }} formatter={(value: number) => [value.toFixed(4), '']} />
                         <Line type="monotone" dataKey="y" stroke="#6366f1" dot={false} strokeWidth={1.5} />
                       </LineChart>
                     </ResponsiveContainer>
@@ -382,14 +379,14 @@ export default function SimulatorTab() {
                 </Card>
 
                 <Card title="Velocity">
-                  <div className="h-36">
+                  <div className="h-44 mt-2">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={trajectory}>
+                      <LineChart data={trajectory} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2a" />
-                        <XAxis dataKey="timestamp" stroke="#4e4e62" tick={{ fontSize: 10, fill: '#8b8b9e' }} />
-                        <YAxis stroke="#4e4e62" tick={{ fontSize: 10, fill: '#8b8b9e' }} />
-                        <Tooltip contentStyle={{ backgroundColor: '#0f0f13', border: '1px solid #1e1e2a', borderRadius: 6, fontSize: 11 }} formatter={(value: number) => [value.toFixed(4), '']} />
-                        <Legend wrapperStyle={{ fontSize: 10, color: '#8b8b9e' }} />
+                        <XAxis dataKey="timestamp" stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
+                        <YAxis stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
+                        <Tooltip contentStyle={{ backgroundColor: '#0f0f13', border: '1px solid #1e1e2a', borderRadius: 8, fontSize: 12, padding: '8px 12px' }} formatter={(value: number) => [value.toFixed(4), '']} />
+                        <Legend wrapperStyle={{ fontSize: 11, color: '#8b8b9e', paddingTop: 8 }} />
                         <Line type="monotone" dataKey="v_linear" name="Linear" stroke="#34d399" dot={false} strokeWidth={1.5} />
                         <Line type="monotone" dataKey="v_angular" name="Angular" stroke="#fbbf24" dot={false} strokeWidth={1.5} />
                       </LineChart>
@@ -398,37 +395,39 @@ export default function SimulatorTab() {
                 </Card>
 
                 {optimResult && (
-                  <Card title="Optimization">
-                    <div className="space-y-3">
+                  <Card title="Optimization Result">
+                    <div className="space-y-5 mt-1">
                       <div className="flex items-baseline justify-between">
-                        <span className="text-[11px] text-solus-text-muted">Score</span>
-                        <div className="font-mono text-xs">
+                        <span className="text-[12px] text-solus-text-muted">Score</span>
+                        <div className="font-mono text-[13px]">
                           <span className="text-red-400/70">{optimResult.bad_score.toFixed(4)}</span>
-                          <span className="text-solus-text-muted mx-1.5">&rarr;</span>
+                          <span className="text-solus-text-muted mx-2">&rarr;</span>
                           <span className="text-emerald-400">{optimResult.best_score.toFixed(4)}</span>
-                          <span className="text-emerald-400/60 ml-1.5 text-[10px]">
+                          <span className="text-emerald-400/50 ml-2 text-[11px]">
                             {((1 - optimResult.best_score / optimResult.bad_score) * 100).toFixed(0)}% better
                           </span>
                         </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-1.5">
+
+                      <div className="grid grid-cols-3 gap-3">
                         {Object.entries(optimResult.best_gains).map(([key, value]) => (
-                          <div key={key} className="bg-solus-bg rounded-md px-2 py-2 text-center">
-                            <div className="text-[9px] text-solus-text-muted uppercase tracking-wider">{key}</div>
-                            <div className="text-sm font-mono text-solus-accent-bright mt-0.5">{value.toFixed(3)}</div>
+                          <div key={key} className="bg-solus-bg rounded-lg px-4 py-3 text-center">
+                            <div className="text-[10px] text-solus-text-muted uppercase tracking-[0.1em] mb-1">{key}</div>
+                            <div className="text-[16px] font-mono text-solus-accent-bright">{value.toFixed(3)}</div>
                           </div>
                         ))}
                       </div>
-                      <div className="text-[10px] text-solus-text-muted">{optimResult.trials_run} candidates tested</div>
 
-                      <div className="h-40">
+                      <div className="text-[11px] text-solus-text-muted">{optimResult.trials_run} candidates tested</div>
+
+                      <div className="h-48 mt-1">
                         <ResponsiveContainer width="100%" height="100%">
-                          <LineChart>
+                          <LineChart margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2a" />
-                            <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 10, fill: '#8b8b9e' }} />
-                            <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 10, fill: '#8b8b9e' }} />
-                            <Tooltip contentStyle={{ backgroundColor: '#0f0f13', border: '1px solid #1e1e2a', borderRadius: 6, fontSize: 11 }} />
-                            <Legend wrapperStyle={{ fontSize: 10, color: '#8b8b9e' }} />
+                            <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
+                            <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#4e4e62" tick={{ fontSize: 11, fill: '#8b8b9e' }} />
+                            <Tooltip contentStyle={{ backgroundColor: '#0f0f13', border: '1px solid #1e1e2a', borderRadius: 8, fontSize: 12, padding: '8px 12px' }} />
+                            <Legend wrapperStyle={{ fontSize: 11, color: '#8b8b9e', paddingTop: 8 }} />
                             <Line data={optimResult.bad_trajectory} dataKey="y" name="Before" stroke="#f87171" dot={false} strokeWidth={1.5} strokeDasharray="4 3" />
                             <Line data={optimResult.best_trajectory} dataKey="y" name="After" stroke="#34d399" dot={false} strokeWidth={1.5} />
                           </LineChart>
@@ -438,23 +437,23 @@ export default function SimulatorTab() {
                   </Card>
                 )}
 
-                <div className="flex items-center gap-2">
+                <div className="pt-2">
                   <button onClick={runComparison} disabled={comparing} className={btnGhost}>
-                    {comparing ? <LoadingSpinner size="sm" /> : <ArrowRight size={13} />}
+                    {comparing ? <LoadingSpinner size="sm" /> : <ArrowRight size={14} />}
                     Compare Sim vs Runtime
                   </button>
                 </div>
 
                 {discrepancies.length > 0 && (
                   <Card title="Discrepancies">
-                    <table className="w-full text-[11px]">
+                    <table className="w-full text-[12px] mt-2">
                       <thead>
-                        <tr className="border-b border-solus-border/40">
-                          <th className="text-left py-1.5 px-2 text-solus-text-muted font-normal">Signal</th>
-                          <th className="text-right py-1.5 px-2 text-solus-text-muted font-normal">Sim</th>
-                          <th className="text-right py-1.5 px-2 text-solus-text-muted font-normal">Real</th>
-                          <th className="text-right py-1.5 px-2 text-solus-text-muted font-normal">Delta</th>
-                          <th className="w-12"></th>
+                        <tr className="border-b border-solus-border/30">
+                          <th className="text-left py-2.5 px-3 text-solus-text-muted font-normal">Signal</th>
+                          <th className="text-right py-2.5 px-3 text-solus-text-muted font-normal">Sim</th>
+                          <th className="text-right py-2.5 px-3 text-solus-text-muted font-normal">Real</th>
+                          <th className="text-right py-2.5 px-3 text-solus-text-muted font-normal">Delta</th>
+                          <th className="w-16"></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -465,7 +464,7 @@ export default function SimulatorTab() {
                     </table>
                   </Card>
                 )}
-              </>
+              </div>
             )}
           </div>
         </div>
