@@ -18,6 +18,7 @@ from packages.shared_types.src.models import (
 from .memory.memory_store import MemoryStore
 from .agent.solus_agent import SolusAgent
 from .simulator.mujoco_wrapper import MuJoCoSimulator
+from .simulator.pid_optimizer import optimize_pid
 
 # ContextEngine — available now that Pratham has merged
 try:
@@ -75,6 +76,14 @@ class SimulatorCompareReq(BaseModel):
     sim_data: list[dict[str, Any]]
     runtime_data: list[dict[str, Any]]
     threshold: float = 0.01
+
+class OptimizePIDReq(BaseModel):
+    n_trials: int = 100
+    n_steps: int = 200
+    dt: float = 0.01
+    target_speed: float = 1.0
+    initial_theta: float = 0.1
+    bounds: Optional[dict[str, list[float]]] = None
 
 
 # ── Agent Routes ──
@@ -172,6 +181,23 @@ async def compare_simulation(project_id: str, req: SimulatorCompareReq):
         "discrepancies": discrepancies,
         "match": len(discrepancies) == 0,
     }
+
+
+@router.post("/projects/{project_id}/simulator/optimize")
+async def optimize_simulation(project_id: str, req: OptimizePIDReq):
+    """Run PID optimization: finds gains that minimize straight-line drift."""
+    bounds = None
+    if req.bounds:
+        bounds = {k: tuple(v) for k, v in req.bounds.items()}
+    result = optimize_pid(
+        n_trials=req.n_trials,
+        n_steps=req.n_steps,
+        dt=req.dt,
+        target_speed=req.target_speed,
+        initial_theta=req.initial_theta,
+        bounds=bounds,
+    )
+    return result
 
 
 # ── Onshape Import (Mock) ──
