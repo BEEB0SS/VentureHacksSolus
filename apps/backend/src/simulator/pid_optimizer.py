@@ -46,8 +46,12 @@ def simulate_with_pid(kp: float, ki: float, kd: float,
         # Convert to wheel speeds: base speed +/- steering correction
         # Correction > 0 means turn right (slow left, speed up right)
         base_angular_speed = target_speed / wheel_radius
-        left_speed = base_angular_speed - correction
-        right_speed = base_angular_speed + correction
+        # Constant steering bias — simulates a slightly stronger left motor.
+        # Without PID correction, this makes the heading drift increase over time.
+        # Good PID counteracts it; bad PID lets it compound.
+        steering_bias = 0.3
+        left_speed = base_angular_speed + steering_bias - correction
+        right_speed = base_angular_speed - steering_bias + correction
 
         # Differential drive kinematics
         v_left = left_speed * wheel_radius
