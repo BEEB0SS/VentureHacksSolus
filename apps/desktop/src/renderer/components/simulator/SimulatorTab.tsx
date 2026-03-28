@@ -64,6 +64,17 @@ export default function SimulatorTab() {
   const [error, setError] = useState<string | null>(null)
   const [stepCount, setStepCount] = useState(0)
 
+  // Optimization
+  const [optimizing, setOptimizing] = useState(false)
+  const [optimResult, setOptimResult] = useState<{
+    best_gains: { kp: number; ki: number; kd: number }
+    best_score: number
+    bad_score: number
+    best_trajectory: TrajectoryPoint[]
+    bad_trajectory: TrajectoryPoint[]
+    trials_run: number
+  } | null>(null)
+
   // ── Handlers ──
 
   const handleReset = useCallback(() => {
@@ -171,6 +182,28 @@ export default function SimulatorTab() {
     }
   }, [currentProjectId, handleReset])
 
+  const runOptimization = useCallback(async () => {
+    if (!currentProjectId) return
+    setOptimizing(true)
+    setError(null)
+    setOptimResult(null)
+    try {
+      const res = await fetch(`${API_BASE}/api/projects/${currentProjectId}/simulator/optimize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ n_trials: 100, n_steps: 200 }),
+      })
+      if (!res.ok) throw new Error(`Optimization failed: ${res.statusText}`)
+      const result = await res.json()
+      setOptimResult(result)
+      setTrajectory(result.best_trajectory)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Optimization failed')
+    } finally {
+      setOptimizing(false)
+    }
+  }, [currentProjectId])
+
   // Compare with mock runtime data
   const runComparison = useCallback(async () => {
     if (!currentProjectId || trajectory.length === 0) return
@@ -230,6 +263,14 @@ export default function SimulatorTab() {
               {backendLoading ? <LoadingSpinner size="sm" /> : <Play size={14} />} Run Simulation
             </button>
           )}
+          <button
+            onClick={runOptimization}
+            disabled={optimizing}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-500 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {optimizing ? <LoadingSpinner size="sm" /> : <Play size={14} />}
+            {optimizing ? 'Optimizing...' : 'Optimize PID'}
+          </button>
         </div>
       </div>
 
@@ -376,6 +417,46 @@ export default function SimulatorTab() {
                     </ResponsiveContainer>
                   </div>
                 </Card>
+
+                {optimResult && (
+                <Card title="Optimization Result">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-solus-text-dim">Score improvement</span>
+                      <span className="text-sm font-mono font-semibold text-green-400">
+                        {optimResult.bad_score.toFixed(4)} → {optimResult.best_score.toFixed(4)}
+                        {' '}({((1 - optimResult.best_score / optimResult.bad_score) * 100).toFixed(0)}% better)
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {Object.entries(optimResult.best_gains).map(([key, value]) => (
+                        <div key={key} className="bg-solus-elevated rounded px-2 py-1.5 text-center">
+                          <div className="text-xs text-solus-text-muted">{key.toUpperCase()}</div>
+                          <div className="text-sm font-mono font-semibold text-solus-accent">{value.toFixed(3)}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-xs text-solus-text-muted">
+                      Tested {optimResult.trials_run} candidates
+                    </div>
+
+                    {/* Before/After Trajectory Overlay */}
+                    <div className="h-48">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
+                          <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} label={{ value: 'x (m)', position: 'insideBottom', offset: -5, style: { fontSize: 10, fill: '#94a3b8' } }} />
+                          <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} label={{ value: 'y (m)', angle: -90, position: 'insideLeft', style: { fontSize: 10, fill: '#94a3b8' } }} />
+                          <Tooltip contentStyle={{ backgroundColor: '#12121a', border: '1px solid #2a2a3a', borderRadius: 6, fontSize: 11 }} />
+                          <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
+                          <Line data={optimResult.bad_trajectory} dataKey="y" name="Before (no PID)" stroke="#ef4444" dot={false} strokeWidth={2} strokeDasharray="5 5" />
+                          <Line data={optimResult.best_trajectory} dataKey="y" name="After (optimized)" stroke="#22c55e" dot={false} strokeWidth={2} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </Card>
+              )}
 
                 <div className="flex items-center gap-2">
                   <button onClick={runComparison} disabled={comparing}
