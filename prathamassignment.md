@@ -115,7 +115,7 @@ The `/sync` route is the most complex — it:
 ## Claude Code Prompt
 
 ```
-Read PRODUCT_CONTEXT.md first, then packages/shared-types/src/models.py and
+Read PRODUCT_CONTEXT.md first, then packages/shared_types/src/models.py and
 apps/backend/src/database.py.
 
 I'm building the foundation + Demo A (Change Propagation). Read my full spec at

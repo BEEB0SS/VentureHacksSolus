@@ -125,7 +125,7 @@ POST /api/projects/{id}/simulator/compare ← compare sim vs runtime
 ## Claude Code Prompt
 
 ```
-Read PRODUCT_CONTEXT.md first, then packages/shared-types/src/models.py and
+Read PRODUCT_CONTEXT.md first, then packages/shared_types/src/models.py and
 apps/backend/src/database.py.
 
 I'm building Demo D (External Knowledge) + Demo E (Simulator). Read my full spec at

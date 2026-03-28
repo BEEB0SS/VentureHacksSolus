@@ -29,5 +29,5 @@ Ships Solus features — writes backend engines, API routes, and frontend compon
 - Check [[Build]] for tech stack details and code structure
 - Check [[Team]] for file ownership before editing anything
 - Reference [[Product]] for demo flow specs
-- Always use the shared types from packages/shared-types/src/models.py
+- Always use the shared types from packages/shared_types/src/models.py
 - Test against the backend at localhost:8000 and frontend at localhost:5173

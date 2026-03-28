@@ -6,7 +6,7 @@ Paste this entire block into Claude Code after running `claude` in the repo root
 
 Read these files in order before doing anything:
 1. PRODUCT_CONTEXT.md — what Solus is and why we're building it
-2. packages/shared-types/src/models.py — all data models
+2. packages/shared_types/src/models.py — all data models
 3. apps/desktop/src/renderer/App.tsx — the existing app shell
 4. apps/desktop/src/renderer/styles/globals.css — the Tailwind theme
 5. team-briefs/TEAMMATE_3_SHELL_INTEGRATION.md — your full spec

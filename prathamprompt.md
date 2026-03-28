@@ -6,7 +6,7 @@ Paste this entire block into Claude Code after running `claude` in the repo root
 
 Read these files in order before doing anything:
 1. PRODUCT_CONTEXT.md — what Solus is and why we're building it
-2. packages/shared-types/src/models.py — all data models (your contract)
+2. packages/shared_types/src/models.py — all data models (your contract)
 3. apps/backend/src/database.py — SQLite schema
 4. team-briefs/YOU_LEAD_DEMO_A.md — your full spec
 

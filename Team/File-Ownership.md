@@ -36,7 +36,7 @@
 - `scripts/seed_demo.py`
 
 ## Shared (Read-Only — Nobody Edits)
-- `packages/shared-types/src/models.py`
+- `packages/shared_types/src/models.py`
 - `apps/backend/src/database.py`
 - `productcontext.md`
 

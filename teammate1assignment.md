@@ -131,7 +131,7 @@ This is shared across demos but YOU build the UI:
 ## Claude Code Prompt
 
 ```
-Read PRODUCT_CONTEXT.md first, then packages/shared-types/src/models.py and
+Read PRODUCT_CONTEXT.md first, then packages/shared_types/src/models.py and
 apps/backend/src/database.py.
 
 I'm building Demo B (Live Bench) + Demo C (Team Memory). Read my full spec at

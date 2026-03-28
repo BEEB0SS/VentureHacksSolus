@@ -214,7 +214,7 @@ scripts/seed_demo.py
 
 ### Nobody edits (shared contracts — read only):
 ```
-packages/shared-types/src/models.py
+packages/shared_types/src/models.py
 apps/backend/src/database.py
 PRODUCT_CONTEXT.md
 ```

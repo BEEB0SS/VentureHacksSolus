@@ -61,7 +61,7 @@ apps/desktop/src/renderer/
 
 ## Shared Types
 ```
-packages/shared-types/src/
+packages/shared_types/src/
 └── models.py    ← Shared (read-only, the data contract)
 ```
 

@@ -6,15 +6,19 @@ import sqlite3
 import os
 from pathlib import Path
 
-DB_PATH = os.environ.get("SOLUS_DB_PATH", str(Path.home() / ".solus" / "solus.db"))
+_DEFAULT_DB_PATH = str(Path.home() / ".solus" / "solus.db")
+
+
+def _get_db_path() -> str:
+    return os.environ.get("SOLUS_DB_PATH", _DEFAULT_DB_PATH)
 
 
 def get_connection() -> sqlite3.Connection:
-    # Re-read env var at connection time so tests can override SOLUS_DB_PATH per-test.
-    db_path = os.environ.get("SOLUS_DB_PATH", DB_PATH)
-    parent = os.path.dirname(db_path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
+    db_path = _get_db_path()
+    if db_path != ":memory:":
+        db_dir = os.path.dirname(db_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -192,7 +196,11 @@ def init_db():
     """)
     conn.commit()
     conn.close()
+<<<<<<< Updated upstream
     print(f"Database initialized at {os.environ.get('SOLUS_DB_PATH', DB_PATH)}")
+=======
+    print(f"Database initialized at {_get_db_path()}")
+>>>>>>> Stashed changes
 
 
 if __name__ == "__main__":
