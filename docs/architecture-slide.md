@@ -1,0 +1,41 @@
+# Solus — Architecture (Slide Version)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ELECTRON + REACT + TYPESCRIPT                 │
+│                                                                 │
+│  Workspace │ Context Model │ Agent │ Live Bench │ Simulator     │
+│  Projects    D3 Force Graph  Gemini   Telemetry    MuJoCo 3D    │
+│  Sources     Impact BFS      Chat     Anomalies    PID Optimize │
+│  Sync        AI Explain      Memory   Issues       Before/After │
+│                                                                 │
+│  Zustand Store · Recharts · Three.js · WebSocket · Tailwind v4  │
+└──────────────────────────────┬──────────────────────────────────┘
+                          REST + WS
+┌──────────────────────────────┴──────────────────────────────────┐
+│                     FASTAPI BACKEND (Python)                     │
+│                                                                  │
+│  ┌──────────────┐ ┌─────────────┐ ┌──────────┐ ┌────────────┐  │
+│  │Context Engine│ │ Solus Agent │ │Live Bench│ │ Simulator  │  │
+│  │              │ │             │ │          │ │            │  │
+│  │ 14 entity    │ │ 6 query     │ │ 8-signal │ │ Diff-drive │  │
+│  │ types        │ │ modes       │ │ telemetry│ │ kinematics │  │
+│  │ 13 relation  │ │ Context     │ │ Anomaly  │ │ PID ctrl   │  │
+│  │ types        │ │ assembly    │ │ detection│ │ Random     │  │
+│  │ BFS impact   │ │ Gemini API  │ │ Issue/fix│ │ search     │  │
+│  │ Snapshot diff│ │ 4-tier      │ │ CRUD     │ │ optimizer  │  │
+│  │ Change track │ │ fallback    │ │ Ring buf │ │ MuJoCo WASM│  │
+│  └──────────────┘ └─────────────┘ └──────────┘ └────────────┘  │
+│                                                                  │
+│  ┌──────────────┐ ┌─────────────┐ ┌──────────────────────────┐  │
+│  │  Connectors  │ │Memory Store │ │     Discovery Engine     │  │
+│  │              │ │             │ │                          │  │
+│  │ GitHub       │ │ TF-IDF      │ │ Python AST → depends_on │  │
+│  │ KiCad        │ │ cosine      │ │ KiCad nets → connected  │  │
+│  │ Onshape      │ │ similarity  │ │ Config     → configured │  │
+│  │ PDF          │ │ (pure Python│ │ Cross-modal boosting     │  │
+│  └──────────────┘ └─────────────┘ └──────────────────────────┘  │
+│                                                                  │
+│  SQLite (WAL) ──── 11 tables ──── Gemini 2.5 Flash              │
+└──────────────────────────────────────────────────────────────────┘
+```
