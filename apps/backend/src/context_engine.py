@@ -378,6 +378,59 @@ class ContextEngine:
             impacted_entity_ids=json.loads(r["impacted_entity_ids"]) if r["impacted_entity_ids"] else [],
             created_at=r["created_at"], acknowledged=bool(r["acknowledged"])) for r in rows]
 
+    # ── Impact Analysis (BFS) ──
+
+    def _build_adjacency(self) -> dict[str, set[str]]:
+        adj: dict[str, set[str]] = {}
+        conn = get_connection()
+        rows = conn.execute("SELECT source_entity_id, target_entity_id FROM relations WHERE project_id = ?",
+                            (self.project_id,)).fetchall()
+        conn.close()
+        for row in rows:
+            src, tgt = row["source_entity_id"], row["target_entity_id"]
+            adj.setdefault(src, set()).add(tgt)
+            adj.setdefault(tgt, set()).add(src)
+        return adj
+
+    def impact_analysis(self, entity_id: str, depth: int = 3) -> list[Entity]:
+        adj = self._build_adjacency()
+        visited: set[str] = set()
+        queue: deque[tuple[str, int]] = deque([(entity_id, 0)])
+        visited.add(entity_id)
+        while queue:
+            current_id, current_depth = queue.popleft()
+            if current_depth >= depth:
+                continue
+            for neighbor_id in adj.get(current_id, set()):
+                if neighbor_id not in visited:
+                    visited.add(neighbor_id)
+                    queue.append((neighbor_id, current_depth + 1))
+        visited.discard(entity_id)
+        return [e for e in self.list_entities() if e.id in visited]
+
+    # ── Subgraph Retrieval ──
+
+    def get_subgraph(self, entity_id: str, depth: int = 2) -> dict:
+        adj = self._build_adjacency()
+        visited: set[str] = set()
+        queue: deque[tuple[str, int]] = deque([(entity_id, 0)])
+        visited.add(entity_id)
+        while queue:
+            current_id, current_depth = queue.popleft()
+            if current_depth >= depth:
+                continue
+            for neighbor_id in adj.get(current_id, set()):
+                if neighbor_id not in visited:
+                    visited.add(neighbor_id)
+                    queue.append((neighbor_id, current_depth + 1))
+        entities = [e for e in self.list_entities() if e.id in visited]
+        all_relations = self.list_relations()
+        relations = [r for r in all_relations if r.source_entity_id in visited and r.target_entity_id in visited]
+        return {
+            "entities": [self._entity_to_dict(e) for e in entities],
+            "relations": [self._relation_to_dict(r) for r in relations],
+        }
+
     @staticmethod
     def _row_to_entity(row) -> Entity:
         return Entity(

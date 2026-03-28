@@ -244,3 +244,77 @@ class TestSnapshotDiff:
         engine.diff_snapshots(snap_old.id, snap_new.id)
         changes = engine.list_changes()
         assert len(changes) == 2  # 1 modified + 1 added
+
+
+class TestImpactAnalysis:
+    def _build_chain(self, project_id):
+        """Build: DRV8825 --drives--> motor_ctrl --depends_on--> ros_node --publishes--> /cmd_vel"""
+        from apps.backend.src.context_engine import ContextEngine
+        engine = ContextEngine(project_id)
+        e1 = engine.create_entity(Entity(entity_type=EntityType.ELECTRICAL_PART, name="DRV8825"))
+        e2 = engine.create_entity(Entity(entity_type=EntityType.SOFTWARE_MODULE, name="motor_controller.py"))
+        e3 = engine.create_entity(Entity(entity_type=EntityType.SOFTWARE_MODULE, name="ros_navigation"))
+        e4 = engine.create_entity(Entity(entity_type=EntityType.INTERFACE, name="/cmd_vel"))
+        engine.create_relation(Relation(source_entity_id=e1.id, target_entity_id=e2.id, relation_type=RelationType.DRIVES))
+        engine.create_relation(Relation(source_entity_id=e2.id, target_entity_id=e3.id, relation_type=RelationType.DEPENDS_ON))
+        engine.create_relation(Relation(source_entity_id=e3.id, target_entity_id=e4.id, relation_type=RelationType.PUBLISHES))
+        return engine, e1, e2, e3, e4
+
+    def test_impact_from_root(self, project_id):
+        engine, e1, e2, e3, e4 = self._build_chain(project_id)
+        impacted = engine.impact_analysis(e1.id, depth=3)
+        impacted_ids = {e.id for e in impacted}
+        assert e2.id in impacted_ids
+        assert e3.id in impacted_ids
+        assert e4.id in impacted_ids
+        assert e1.id not in impacted_ids
+
+    def test_impact_depth_limit(self, project_id):
+        engine, e1, e2, e3, e4 = self._build_chain(project_id)
+        impacted = engine.impact_analysis(e1.id, depth=1)
+        impacted_ids = {e.id for e in impacted}
+        assert e2.id in impacted_ids
+        assert e3.id not in impacted_ids
+
+    def test_impact_from_middle(self, project_id):
+        engine, e1, e2, e3, e4 = self._build_chain(project_id)
+        impacted = engine.impact_analysis(e2.id, depth=3)
+        impacted_ids = {e.id for e in impacted}
+        assert e1.id in impacted_ids
+        assert e3.id in impacted_ids
+        assert e4.id in impacted_ids
+
+    def test_impact_isolated_entity(self, project_id):
+        from apps.backend.src.context_engine import ContextEngine
+        engine = ContextEngine(project_id)
+        e = engine.create_entity(Entity(entity_type=EntityType.ELECTRICAL_PART, name="Lone"))
+        impacted = engine.impact_analysis(e.id)
+        assert len(impacted) == 0
+
+
+class TestSubgraph:
+    def _build_chain(self, project_id):
+        from apps.backend.src.context_engine import ContextEngine
+        engine = ContextEngine(project_id)
+        e1 = engine.create_entity(Entity(entity_type=EntityType.ELECTRICAL_PART, name="DRV8825"))
+        e2 = engine.create_entity(Entity(entity_type=EntityType.SOFTWARE_MODULE, name="motor_ctrl"))
+        e3 = engine.create_entity(Entity(entity_type=EntityType.SOFTWARE_MODULE, name="ros_nav"))
+        e4 = engine.create_entity(Entity(entity_type=EntityType.INTERFACE, name="/cmd_vel"))
+        engine.create_relation(Relation(source_entity_id=e1.id, target_entity_id=e2.id, relation_type=RelationType.DRIVES))
+        engine.create_relation(Relation(source_entity_id=e2.id, target_entity_id=e3.id, relation_type=RelationType.DEPENDS_ON))
+        engine.create_relation(Relation(source_entity_id=e3.id, target_entity_id=e4.id, relation_type=RelationType.PUBLISHES))
+        return engine, e1, e2, e3, e4
+
+    def test_subgraph_depth_1(self, project_id):
+        engine, e1, e2, e3, e4 = self._build_chain(project_id)
+        sub = engine.get_subgraph(e2.id, depth=1)
+        entity_ids = {e["id"] for e in sub["entities"]}
+        assert e2.id in entity_ids
+        assert e1.id in entity_ids
+        assert e3.id in entity_ids
+        assert e4.id not in entity_ids
+
+    def test_subgraph_includes_relevant_relations(self, project_id):
+        engine, e1, e2, e3, e4 = self._build_chain(project_id)
+        sub = engine.get_subgraph(e2.id, depth=1)
+        assert len(sub["relations"]) == 2  # e1->e2, e2->e3
