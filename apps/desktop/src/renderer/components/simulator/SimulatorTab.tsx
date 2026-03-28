@@ -232,7 +232,7 @@ export default function SimulatorTab() {
 
   // Shared styles
   const inputCls = "w-full bg-solus-bg border border-solus-border/50 rounded-lg px-3 py-2 text-[13px] font-mono text-solus-text focus:outline-none focus:border-solus-accent/50 transition-colors"
-  const btnBase = "flex items-center gap-2 px-4 py-2 text-[12px] font-medium rounded-lg transition-colors cursor-pointer"
+  const btnBase = "flex items-center gap-2 px-5 py-2.5 text-[13px] font-medium rounded-lg transition-colors cursor-pointer"
   const btnGhost = `${btnBase} text-solus-text-dim hover:text-solus-text hover:bg-solus-elevated`
   const btnPrimary = `${btnBase} text-white bg-solus-accent hover:bg-solus-accent-bright disabled:opacity-40`
   const btnSuccess = `${btnBase} text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40`
@@ -269,7 +269,7 @@ export default function SimulatorTab() {
               <div className="flex items-center rounded-lg overflow-hidden border border-solus-border/30">
                 <button
                   onClick={() => { setViewingOptimized(false); setTrajectory(optimResult.bad_trajectory) }}
-                  className={`px-4 py-1.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                  className={`px-5 py-2 text-[13px] font-medium transition-colors cursor-pointer ${
                     !viewingOptimized ? 'bg-red-500/15 text-red-400' : 'text-solus-text-muted hover:text-solus-text-dim'
                   }`}
                 >
@@ -278,7 +278,7 @@ export default function SimulatorTab() {
                 <div className="w-px h-4 bg-solus-border/30" />
                 <button
                   onClick={() => { setViewingOptimized(true); setTrajectory(optimResult.best_trajectory) }}
-                  className={`px-4 py-1.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                  className={`px-5 py-2 text-[13px] font-medium transition-colors cursor-pointer ${
                     viewingOptimized ? 'bg-emerald-500/15 text-emerald-400' : 'text-solus-text-muted hover:text-solus-text-dim'
                   }`}
                 >
