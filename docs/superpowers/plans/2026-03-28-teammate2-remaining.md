@@ -17,6 +17,12 @@
 
 **Import pattern:** All files in this project use a `sys.path` + module shim pattern for `packages.shared_types.src.models` because the directory `packages/shared-types` has a hyphen. Copy the shim from `memory_store.py` into each new production file. Test files rely on `conftest.py` which already sets up the shim.
 
+**IMPORTANT — Import ordering:** `routes_agent.py` must import `memory_store` before `solus_agent` because `memory_store.py` has the full module shim that registers `packages.shared_types.src.models`, while `solus_agent.py` only does a basic `sys.path.insert`. If import order is wrong, `solus_agent.py` will fail with `ModuleNotFoundError`.
+
+**IMPORTANT — Known rename conflict:** Pratham's plan may rename `packages/shared-types/` to `packages/shared_types/`. When that happens, all module shims become unnecessary and should be removed. For now, use the shim pattern since the directory still has a hyphen.
+
+**IMPORTANT — Use absolute imports only.** Do NOT use relative imports (e.g., `from .memory.memory_store`) — they won't work with the sys.path approach. Use `from apps.backend.src.memory.memory_store import MemoryStore` instead.
+
 ---
 
 ## File Structure
@@ -25,6 +31,8 @@
 
 | File | Responsibility |
 |------|---------------|
+| `apps/backend/src/connectors/__init__.py` | Empty package init (verify exists, create if not) |
+| `apps/backend/src/simulator/__init__.py` | Empty package init (verify exists, create if not) |
 | `apps/backend/src/connectors/pdf_connector.py` | Read PDFs, extract text, chunk into ~500 word segments |
 | `apps/backend/src/simulator/mujoco_wrapper.py` | Differential drive physics stub, parameter management, sim vs runtime comparison |
 | `apps/backend/src/routes_agent.py` | FastAPI APIRouter — agent query, memory CRUD, simulator endpoints |
@@ -36,7 +44,7 @@
 
 | File | Change |
 |------|--------|
-| `apps/backend/requirements.txt` | Add `PyPDF2==3.0.1` |
+| `apps/backend/requirements.txt` | Add `PyPDF2==3.0.1` and `fpdf2==2.8.1` |
 
 ### Existing Files (Read-Only References)
 
@@ -61,9 +69,15 @@
 
 - [ ] **Step 1: Add PyPDF2 to requirements and install**
 
-Append `PyPDF2==3.0.1` to `apps/backend/requirements.txt`.
+Append these to `apps/backend/requirements.txt`:
+```
+PyPDF2==3.0.1
+fpdf2==2.8.1
+```
 
-Run: `cd /Users/bentontameling/VentureHacksSolus/.worktrees/memory-store-agent/apps/backend && source .venv/bin/activate && pip install PyPDF2==3.0.1`
+Also verify that `apps/backend/src/connectors/__init__.py` and `apps/backend/src/simulator/__init__.py` exist (they should from the initial scaffold). If not, create them as empty files.
+
+Run: `cd /Users/bentontameling/VentureHacksSolus/.worktrees/memory-store-agent/apps/backend && source .venv/bin/activate && pip install PyPDF2==3.0.1 fpdf2==2.8.1`
 
 - [ ] **Step 2: Write failing tests**
 
@@ -78,43 +92,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 
 
 def _create_test_pdf(text_pages: list[str], path: str):
-    """Create a minimal PDF with the given text per page using reportlab-free approach."""
-    # Use PyPDF2 to create a simple PDF for testing
-    from PyPDF2 import PdfWriter
-    from PyPDF2.generic import (
-        ArrayObject, DecodedStreamObject, DictionaryObject,
-        NameObject, NumberObject, TextStringObject, createStringObject,
-    )
+    """Create a test PDF with extractable text using fpdf2."""
+    from fpdf import FPDF
 
-    writer = PdfWriter()
+    pdf = FPDF()
     for page_text in text_pages:
-        # Create a minimal PDF page with text
-        page = writer.add_blank_page(width=612, height=792)
-
-        # Create a content stream that draws text
-        content = f"BT /F1 12 Tf 72 720 Td ({page_text}) Tj ET"
-
-        # Add a font resource
-        font_dict = DictionaryObject()
-        font_dict.update({
-            NameObject("/Type"): NameObject("/Font"),
-            NameObject("/Subtype"): NameObject("/Type1"),
-            NameObject("/BaseFont"): NameObject("/Helvetica"),
-        })
-
-        resources = DictionaryObject()
-        font_resources = DictionaryObject()
-        font_resources[NameObject("/F1")] = font_dict
-        resources[NameObject("/Font")] = font_resources
-        page[NameObject("/Resources")] = resources
-
-        # Set content stream
-        stream = DecodedStreamObject()
-        stream.set_data(content.encode("latin-1"))
-        page[NameObject("/Contents")] = stream
-
-    with open(path, "wb") as f:
-        writer.write(f)
+        pdf.add_page()
+        pdf.set_font("Helvetica", size=12)
+        pdf.multi_cell(0, 10, page_text)
+    pdf.output(path)
 
 
 class TestPDFConnector:
@@ -288,12 +274,16 @@ git commit -m "feat: PDF connector — text extraction and chunking for memory s
 
 **Context:** The simulator uses differential drive kinematics as a physics stub (no real MuJoCo required). Given left/right wheel speeds and wheel_radius, it computes x, y, theta over time. It supports setting parameters, running steps, and comparing simulation results against runtime data.
 
-Differential drive equations:
-- `v = (v_left + v_right) / 2` (linear velocity)
-- `omega = (v_right - v_left) / wheel_base` (angular velocity)
+Differential drive equations (left_speed and right_speed are wheel angular velocities in rad/s):
+- `v_left_linear = left_speed * wheel_radius` (convert angular to linear)
+- `v_right_linear = right_speed * wheel_radius`
+- `v = (v_left_linear + v_right_linear) / 2` (linear velocity)
+- `omega = (v_right_linear - v_left_linear) / wheel_base` (angular velocity)
 - `x += v * cos(theta) * dt`
 - `y += v * sin(theta) * dt`
 - `theta += omega * dt`
+
+This means changing `wheel_radius` actually affects the simulation output, which is important for Demo E.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -343,6 +333,7 @@ class TestSimulatorRun:
         """Equal wheel speeds should produce straight-line motion."""
         from apps.backend.src.simulator.mujoco_wrapper import MuJoCoSimulator
         sim = MuJoCoSimulator()
+        # wheel_radius=0.05, so linear speed = 1.0 * 0.05 = 0.05 m/s
         trajectory = sim.run_steps(
             n_steps=100,
             left_speed=1.0,
@@ -522,6 +513,7 @@ class MuJoCoSimulator:
             List of trajectory points, each with x, y, theta, v_linear, v_angular, timestamp
         """
         wheel_base = self.parameters["wheel_base"]
+        wheel_radius = self.parameters["wheel_radius"]
         x = self._position["x"]
         y = self._position["y"]
         theta = self._position["theta"]
@@ -530,9 +522,12 @@ class MuJoCoSimulator:
         time = 0.0
 
         for _ in range(n_steps):
+            # Convert angular wheel speeds (rad/s) to linear using wheel_radius
+            v_left_linear = left_speed * wheel_radius
+            v_right_linear = right_speed * wheel_radius
             # Differential drive kinematics
-            v_linear = (left_speed + right_speed) / 2.0
-            v_angular = (right_speed - left_speed) / wheel_base
+            v_linear = (v_left_linear + v_right_linear) / 2.0
+            v_angular = (v_right_linear - v_left_linear) / wheel_base
 
             # Update position
             x += v_linear * math.cos(theta) * dt
@@ -642,6 +637,17 @@ def _get_app():
     app = FastAPI()
     app.include_router(router)
     return app
+
+
+@pytest.fixture(autouse=True)
+def _clear_simulator_instances():
+    """Clear shared simulator instances between tests to prevent state leakage."""
+    yield
+    try:
+        from apps.backend.src import routes_agent
+        routes_agent._simulator_instances.clear()
+    except (ImportError, AttributeError):
+        pass
 
 
 class TestAgentQueryRoute:
@@ -754,13 +760,13 @@ from packages.shared_types.src.models import (
     _uid, _now,
 )
 
-from .memory.memory_store import MemoryStore
-from .agent.solus_agent import SolusAgent
-from .simulator.mujoco_wrapper import MuJoCoSimulator
+from apps.backend.src.memory.memory_store import MemoryStore
+from apps.backend.src.agent.solus_agent import SolusAgent
+from apps.backend.src.simulator.mujoco_wrapper import MuJoCoSimulator
 
 # ContextEngine — optional, resolves when Pratham merges
 try:
-    from .context_engine import ContextEngine
+    from apps.backend.src.context_engine import ContextEngine
     CONTEXT_ENGINE_AVAILABLE = True
 except ImportError:
     CONTEXT_ENGINE_AVAILABLE = False
