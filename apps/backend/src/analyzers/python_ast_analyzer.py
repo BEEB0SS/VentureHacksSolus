@@ -52,8 +52,8 @@ class EntityIndex:
 
 
 # ROS2 method patterns
-_PUB_METHODS = {"create_publisher", "Publisher"}
-_SUB_METHODS = {"create_subscription", "Subscriber", "create_service"}
+_PUB_METHODS = {"create_publisher", "Publisher", "create_service"}
+_SUB_METHODS = {"create_subscription", "Subscriber"}
 _CLIENT_METHODS = {"create_client"}
 
 
@@ -99,6 +99,39 @@ class PythonAstAnalyzer:
                         node, source_entity_id, source_name, index
                     )
                 )
+
+            # --- Import statements ---
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    module_name = alias.name.split(".")[-1]  # get last component
+                    target = index.by_module.get(module_name)
+                    if target and target.id != source_entity_id:
+                        candidates.append(CandidateRelation(
+                            source_entity_id=source_entity_id,
+                            target_entity_id=target.id,
+                            source_entity_name=source_name,
+                            target_entity_name=target.name,
+                            relation_type=RelationType.DEPENDS_ON,
+                            confidence=0.9,
+                            discovered_by="python_ast",
+                            evidence=f"{source_name} imports {alias.name} at line {node.lineno}",
+                        ))
+
+            if isinstance(node, ast.ImportFrom):
+                if node.module:
+                    module_name = node.module.split(".")[-1]
+                    target = index.by_module.get(module_name)
+                    if target and target.id != source_entity_id:
+                        candidates.append(CandidateRelation(
+                            source_entity_id=source_entity_id,
+                            target_entity_id=target.id,
+                            source_entity_name=source_name,
+                            target_entity_name=target.name,
+                            relation_type=RelationType.DEPENDS_ON,
+                            confidence=0.9,
+                            discovered_by="python_ast",
+                            evidence=f"{source_name} imports from {node.module} at line {node.lineno}",
+                        ))
 
         return candidates
 

@@ -104,7 +104,9 @@ class DiscoveryEngine:
             if not pcb_path:
                 warnings.append(f"No .kicad_pcb file found for source '{source.name}'")
                 continue
-            candidates.extend(KicadNetlistAnalyzer.analyze_pcb(pcb_path, index))
+            cands, analyzer_warnings = KicadNetlistAnalyzer.analyze_pcb(pcb_path, index)
+            candidates.extend(cands)
+            warnings.extend(analyzer_warnings)
         return candidates, warnings
 
     def _run_config_files(
@@ -225,8 +227,9 @@ class DiscoveryEngine:
                      json.dumps({"discovered_by": c.discovered_by, "evidence": c.evidence}),
                      c.confidence, _now()),
                 )
-                c.added = True
             conn.commit()
+            for c in candidates:
+                c.added = True
         except Exception:
             conn.rollback()
             raise

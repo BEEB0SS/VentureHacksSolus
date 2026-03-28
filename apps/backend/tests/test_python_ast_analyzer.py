@@ -101,3 +101,36 @@ class TestBadFile:
         index = _make_index()
         results = PythonAstAnalyzer.analyze_file("/nonexistent.py", "e-x", index)
         assert results == []
+
+
+class TestImportDiscovery:
+    def test_finds_import_dependency(self):
+        """Test that importing a module that matches an entity creates depends_on."""
+        from apps.backend.src.analyzers.python_ast_analyzer import PythonAstAnalyzer
+        index = _make_index()
+        # sensor_reader.py has no imports of other entities in our index,
+        # so we need a temp file that does
+        import tempfile, os
+        code = "import motor_controller\nfrom sensor_reader import SensorReader\n"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(code)
+            f.flush()
+            results = PythonAstAnalyzer.analyze_file(f.name, "e-sensor-rdr", index)
+        os.unlink(f.name)
+        deps = [r for r in results if r.relation_type == RelationType.DEPENDS_ON]
+        target_ids = {r.target_entity_id for r in deps}
+        assert "e-motor-ctrl" in target_ids  # import motor_controller
+        assert "e-sensor-rdr" not in target_ids  # should not self-reference
+
+    def test_import_confidence_is_09(self):
+        from apps.backend.src.analyzers.python_ast_analyzer import PythonAstAnalyzer
+        index = _make_index()
+        import tempfile, os
+        code = "import motor_controller\n"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(code)
+            f.flush()
+            results = PythonAstAnalyzer.analyze_file(f.name, "e-sensor-rdr", index)
+        os.unlink(f.name)
+        deps = [r for r in results if r.relation_type == RelationType.DEPENDS_ON]
+        assert all(r.confidence == 0.9 for r in deps)

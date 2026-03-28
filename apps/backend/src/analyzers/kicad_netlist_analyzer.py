@@ -41,12 +41,13 @@ class KicadNetlistAnalyzer:
     def analyze_pcb(
         pcb_path: str,
         index: EntityIndex,
-    ) -> list[CandidateRelation]:
-        """Analyze a .kicad_pcb file. Returns candidate relations."""
+    ) -> tuple[list[CandidateRelation], list[str]]:
+        """Analyze a .kicad_pcb file. Returns (candidate relations, warnings)."""
+        warnings: list[str] = []
         try:
             pcb_data = KiCadConnector.parse_pcb(pcb_path)
         except (FileNotFoundError, PermissionError, Exception):
-            return []
+            return [], []
 
         components = pcb_data.get("components", [])
 
@@ -75,8 +76,10 @@ class KicadNetlistAnalyzer:
         for net_name, refs in net_components.items():
             net_type = _classify_net(net_name)
 
-            # Skip power nets
+            # Skip power nets — but warn about it
             if net_type == "power":
+                if len(refs) >= 2:
+                    warnings.append(f"Skipped power net '{net_name}' (connects {len(refs)} components)")
                 continue
 
             # Skip nets with only one component
@@ -127,4 +130,4 @@ class KicadNetlistAnalyzer:
                 seen.add(key)
                 deduped.append(c)
 
-        return deduped
+        return deduped, warnings

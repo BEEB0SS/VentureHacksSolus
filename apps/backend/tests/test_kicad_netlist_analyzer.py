@@ -31,7 +31,7 @@ class TestSharedSignalNets:
         from apps.backend.src.analyzers.kicad_netlist_analyzer import KicadNetlistAnalyzer
         index = _make_index()
         pcb_path = os.path.join(FIXTURES, "test_board.kicad_pcb")
-        results = KicadNetlistAnalyzer.analyze_pcb(pcb_path, index)
+        results, warnings = KicadNetlistAnalyzer.analyze_pcb(pcb_path, index)
         conn = [r for r in results if r.relation_type == RelationType.CONNECTED_TO]
         pairs = {(r.source_entity_id, r.target_entity_id) for r in conn}
         assert ("e-esp32", "e-mpu6050") in pairs or ("e-mpu6050", "e-esp32") in pairs
@@ -41,7 +41,7 @@ class TestSharedSignalNets:
         from apps.backend.src.analyzers.kicad_netlist_analyzer import KicadNetlistAnalyzer
         index = _make_index()
         pcb_path = os.path.join(FIXTURES, "test_board.kicad_pcb")
-        results = KicadNetlistAnalyzer.analyze_pcb(pcb_path, index)
+        results, warnings = KicadNetlistAnalyzer.analyze_pcb(pcb_path, index)
         for r in results:
             if r.relation_type == RelationType.CONNECTED_TO:
                 assert "I2C" in r.evidence or "MOTOR" in r.evidence or "signal" in r.evidence.lower()
@@ -52,7 +52,7 @@ class TestDriverMotor:
         from apps.backend.src.analyzers.kicad_netlist_analyzer import KicadNetlistAnalyzer
         index = _make_index()
         pcb_path = os.path.join(FIXTURES, "test_board.kicad_pcb")
-        results = KicadNetlistAnalyzer.analyze_pcb(pcb_path, index)
+        results, warnings = KicadNetlistAnalyzer.analyze_pcb(pcb_path, index)
         drives = [r for r in results if r.relation_type == RelationType.DRIVES]
         assert any(r.source_entity_id == "e-drv8825" and r.target_entity_id == "e-nema17" for r in drives)
 
@@ -62,14 +62,14 @@ class TestConfidenceAndEvidence:
         from apps.backend.src.analyzers.kicad_netlist_analyzer import KicadNetlistAnalyzer
         index = _make_index()
         pcb_path = os.path.join(FIXTURES, "test_board.kicad_pcb")
-        results = KicadNetlistAnalyzer.analyze_pcb(pcb_path, index)
+        results, warnings = KicadNetlistAnalyzer.analyze_pcb(pcb_path, index)
         assert all(r.confidence == 0.95 for r in results)
 
     def test_evidence_includes_net_name(self):
         from apps.backend.src.analyzers.kicad_netlist_analyzer import KicadNetlistAnalyzer
         index = _make_index()
         pcb_path = os.path.join(FIXTURES, "test_board.kicad_pcb")
-        results = KicadNetlistAnalyzer.analyze_pcb(pcb_path, index)
+        results, warnings = KicadNetlistAnalyzer.analyze_pcb(pcb_path, index)
         assert all(r.evidence != "" for r in results)
 
 
@@ -77,5 +77,15 @@ class TestBadFile:
     def test_nonexistent_file_returns_empty(self):
         from apps.backend.src.analyzers.kicad_netlist_analyzer import KicadNetlistAnalyzer
         index = _make_index()
-        results = KicadNetlistAnalyzer.analyze_pcb("/nonexistent.kicad_pcb", index)
+        results, warnings = KicadNetlistAnalyzer.analyze_pcb("/nonexistent.kicad_pcb", index)
         assert results == []
+
+
+class TestPowerNetWarnings:
+    def test_power_net_warning(self):
+        from apps.backend.src.analyzers.kicad_netlist_analyzer import KicadNetlistAnalyzer
+        index = _make_index()
+        pcb_path = os.path.join(FIXTURES, "test_board.kicad_pcb")
+        results, warnings = KicadNetlistAnalyzer.analyze_pcb(pcb_path, index)
+        power_warnings = [w for w in warnings if "power net" in w.lower()]
+        assert len(power_warnings) > 0  # VCC and/or GND should produce warnings
