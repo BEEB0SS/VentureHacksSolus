@@ -354,7 +354,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
 
         // Yaw: use quaternion to combine Z-up→Y-up tilt + heading cleanly
         const tilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
-        const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -point.theta)
+        const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), point.theta)
         car.quaternion.copy(yaw.multiply(tilt))
 
         // Spin wheels around their axle (MuJoCo Y axis in carGroup local space)
@@ -426,7 +426,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
         car.position.x = trajectory[0].x
         car.position.z = -trajectory[0].y
         const tilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
-        const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -trajectory[0].theta)
+        const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), trajectory[0].theta)
         car.quaternion.copy(yaw.multiply(tilt))
       }
     },
