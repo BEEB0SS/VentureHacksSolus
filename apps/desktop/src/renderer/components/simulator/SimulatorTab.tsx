@@ -1,28 +1,15 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Play, RotateCcw, AlertTriangle, ArrowRight } from 'lucide-react'
+import { useState, useCallback, useRef } from 'react'
+import { Play, Pause, RotateCcw, AlertTriangle, ArrowRight } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { useProjectStore } from '../../stores/projectStore'
 import { API_BASE } from '../../constants/api'
 import { Card } from '../shared/Card'
 import { LoadingSpinner } from '../shared/LoadingSpinner'
 import { EmptyState } from '../shared/EmptyState'
+import MuJoCoViewer, { type MuJoCoViewerHandle, type TrajectoryPoint } from './MuJoCoViewer'
+import { ModelSourceBar } from './ModelSourceBar'
 
 // ── Types ──
-
-interface TrajectoryPoint {
-  x: number
-  y: number
-  theta: number
-  v_linear: number
-  v_angular: number
-  timestamp: number
-}
-
-interface SimState {
-  parameters: Record<string, number>
-  trajectory: TrajectoryPoint[]
-  position: { x: number; y: number; theta: number }
-}
 
 interface Discrepancy {
   signal: string
@@ -31,76 +18,66 @@ interface Discrepancy {
   delta: number
 }
 
-interface CompareResult {
-  discrepancies: Discrepancy[]
-  match: boolean
-}
-
-interface RunResult {
-  n_steps: number
-  trajectory: TrajectoryPoint[]
-  final_position: { x: number; y: number; theta: number }
-}
-
 // ── Default Parameters ──
 
 const DEFAULT_PARAMS: Record<string, number> = {
-  wheel_radius: 0.05,
-  wheel_base: 0.3,
+  wheel_radius: 0.0325,
+  wheel_base: 0.17,
   motor_torque: 0.5,
-  friction: 0.1,
+  friction: 1.0,
 }
 
 const PARAM_LABELS: Record<string, { label: string; unit: string; step: number }> = {
-  wheel_radius: { label: 'Wheel Radius', unit: 'm', step: 0.01 },
-  wheel_base: { label: 'Wheel Base', unit: 'm', step: 0.05 },
+  wheel_radius: { label: 'Wheel Radius', unit: 'm', step: 0.005 },
+  wheel_base: { label: 'Wheel Base', unit: 'm', step: 0.01 },
   motor_torque: { label: 'Motor Torque', unit: 'Nm', step: 0.1 },
-  friction: { label: 'Friction', unit: 'μ', step: 0.01 },
+  friction: { label: 'Friction', unit: 'μ', step: 0.1 },
 }
 
 // ── Component ──
 
 export default function SimulatorTab() {
-  const { currentProjectId } = useProjectStore()
+  const { currentProjectId, queryAgent } = useProjectStore()
+
+  // MuJoCo viewer ref
+  const viewerRef = useRef<MuJoCoViewerHandle>(null)
 
   // Parameters
   const [params, setParams] = useState<Record<string, number>>({ ...DEFAULT_PARAMS })
   const [leftSpeed, setLeftSpeed] = useState(1.0)
   const [rightSpeed, setRightSpeed] = useState(1.0)
-  const [nSteps, setNSteps] = useState(200)
+  const [nSteps, setNSteps] = useState(500)
   const [dt, setDt] = useState(0.01)
+  const [playbackSpeed, setPlaybackSpeed] = useState(1.0)
 
   // Results
   const [trajectory, setTrajectory] = useState<TrajectoryPoint[]>([])
-  const [finalPosition, setFinalPosition] = useState<{ x: number; y: number; theta: number } | null>(null)
   const [discrepancies, setDiscrepancies] = useState<Discrepancy[]>([])
 
   // UI state
-  const [loading, setLoading] = useState(false)
+  const [playing, setPlaying] = useState(false)
+  const [wasmReady, setWasmReady] = useState(false)
+  const [modelSource, setModelSource] = useState<'default' | 'upload' | 'onshape'>('default')
+  const [modelLoading, setModelLoading] = useState(false)
   const [comparing, setComparing] = useState(false)
+  const [backendLoading, setBackendLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [stepCount, setStepCount] = useState(0)
 
-  // Load state from backend on mount
-  useEffect(() => {
-    if (!currentProjectId) return
-    fetch(`${API_BASE}/api/projects/${currentProjectId}/simulator/state`)
-      .then(res => res.json())
-      .then((state: SimState) => {
-        if (state.parameters) {
-          setParams(prev => ({ ...prev, ...state.parameters }))
-        }
-        if (state.trajectory?.length > 0) {
-          setTrajectory(state.trajectory)
-          setFinalPosition(state.position)
-        }
-      })
-      .catch(() => {})
-  }, [currentProjectId])
+  // ── Handlers ──
 
-  // Run simulation
-  const runSimulation = useCallback(async () => {
+  const handleReset = useCallback(() => {
+    viewerRef.current?.reset()
+    setPlaying(false)
+    setTrajectory([])
+    setDiscrepancies([])
+    setStepCount(0)
+    setError(null)
+  }, [])
+
+  // Backend fallback simulation
+  const runBackendSimulation = useCallback(async () => {
     if (!currentProjectId) return
-    setLoading(true)
     setError(null)
     try {
       const res = await fetch(`${API_BASE}/api/projects/${currentProjectId}/simulator/run`, {
@@ -115,16 +92,84 @@ export default function SimulatorTab() {
         }),
       })
       if (!res.ok) throw new Error(`Simulation failed: ${res.statusText}`)
-      const result: RunResult = await res.json()
-      setTrajectory(result.trajectory)
-      setFinalPosition(result.final_position)
-      setDiscrepancies([])
+      const result = await res.json()
+      setTrajectory(result.trajectory.map((p: TrajectoryPoint & { step?: number }, i: number) => ({ ...p, step: i + 1 })))
+      setStepCount(result.trajectory.length)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Simulation failed')
-    } finally {
-      setLoading(false)
     }
   }, [currentProjectId, nSteps, leftSpeed, rightSpeed, dt, params])
+
+  const handlePlay = useCallback(() => {
+    if (!wasmReady) {
+      // Fallback to backend
+      setBackendLoading(true)
+      runBackendSimulation().finally(() => setBackendLoading(false))
+      return
+    }
+    viewerRef.current?.setControls(leftSpeed, rightSpeed)
+    viewerRef.current?.play()
+    setPlaying(true)
+  }, [wasmReady, leftSpeed, rightSpeed, runBackendSimulation])
+
+  const handlePause = useCallback(() => {
+    viewerRef.current?.pause()
+    setPlaying(false)
+  }, [])
+
+  const handleTrajectoryUpdate = useCallback((traj: TrajectoryPoint[]) => {
+    setTrajectory([...traj])
+    setStepCount(traj.length)
+  }, [])
+
+  const handleSimComplete = useCallback(() => {
+    setPlaying(false)
+  }, [])
+
+  // Model loading handlers
+  const handleLoadDefault = useCallback(() => {
+    setModelSource('default')
+    // Viewer loads default on mount, just reset
+    handleReset()
+  }, [handleReset])
+
+  const handleUploadFile = useCallback(async (xmlFile: File, meshFiles: File[]) => {
+    if (!viewerRef.current) return
+    setModelLoading(true)
+    try {
+      const xml = await xmlFile.text()
+      const meshMap = new Map<string, ArrayBuffer>()
+      for (const mf of meshFiles) {
+        meshMap.set(mf.name, await mf.arrayBuffer())
+      }
+      await viewerRef.current.loadModelFromXml(xml, meshMap)
+      setModelSource('upload')
+      handleReset()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load model')
+    } finally {
+      setModelLoading(false)
+    }
+  }, [handleReset])
+
+  const handleImportOnshape = useCallback(async (url: string) => {
+    if (!currentProjectId) return
+    setModelLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/projects/${currentProjectId}/simulator/import-onshape`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      })
+      if (!res.ok) throw new Error('Onshape import failed')
+      setModelSource('onshape')
+      handleReset()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Onshape import failed')
+    } finally {
+      setModelLoading(false)
+    }
+  }, [currentProjectId, handleReset])
 
   // Compare with mock runtime data
   const runComparison = useCallback(async () => {
@@ -149,7 +194,7 @@ export default function SimulatorTab() {
         body: JSON.stringify({ sim_data: simData, runtime_data: runtimeData, threshold: 0.01 }),
       })
       if (!res.ok) throw new Error(`Comparison failed: ${res.statusText}`)
-      const result: CompareResult = await res.json()
+      const result = await res.json()
       setDiscrepancies(result.discrepancies)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Comparison failed')
@@ -157,19 +202,6 @@ export default function SimulatorTab() {
       setComparing(false)
     }
   }, [currentProjectId, trajectory])
-
-  // Reset
-  const resetSimulator = useCallback(() => {
-    setParams({ ...DEFAULT_PARAMS })
-    setLeftSpeed(1.0)
-    setRightSpeed(1.0)
-    setNSteps(200)
-    setDt(0.01)
-    setTrajectory([])
-    setFinalPosition(null)
-    setDiscrepancies([])
-    setError(null)
-  }, [])
 
   if (!currentProjectId) {
     return <EmptyState title="No project selected" description="Select a project from the Workspace tab to use the simulator." />
@@ -181,24 +213,23 @@ export default function SimulatorTab() {
       <div className="flex items-center justify-between px-4 py-3 border-b border-solus-border">
         <div>
           <h2 className="text-sm font-semibold text-solus-text">Simulator</h2>
-          <p className="text-xs text-solus-text-muted">Differential drive kinematics — adjust parameters and compare sim vs runtime</p>
+          <p className="text-xs text-solus-text-muted">
+            {wasmReady ? 'MuJoCo WASM — real physics simulation' : 'Differential drive kinematics (WASM loading...)'}
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={resetSimulator}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-solus-text-dim bg-solus-elevated border border-solus-border rounded-md hover:bg-solus-surface transition-colors cursor-pointer"
-          >
-            <RotateCcw size={14} />
-            Reset
+          <button onClick={handleReset} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-solus-text-dim bg-solus-elevated border border-solus-border rounded-md hover:bg-solus-surface transition-colors cursor-pointer">
+            <RotateCcw size={14} /> Reset
           </button>
-          <button
-            onClick={runSimulation}
-            disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-solus-accent rounded-md hover:bg-solus-accent-bright transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            {loading ? <LoadingSpinner size="sm" /> : <Play size={14} />}
-            Run Simulation
-          </button>
+          {playing ? (
+            <button onClick={handlePause} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-solus-warning rounded-md hover:opacity-90 transition-colors cursor-pointer">
+              <Pause size={14} /> Pause
+            </button>
+          ) : (
+            <button onClick={handlePlay} disabled={backendLoading} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-solus-accent rounded-md hover:bg-solus-accent-bright transition-colors disabled:opacity-50 cursor-pointer">
+              {backendLoading ? <LoadingSpinner size="sm" /> : <Play size={14} />} Run Simulation
+            </button>
+          )}
         </div>
       </div>
 
@@ -222,13 +253,9 @@ export default function SimulatorTab() {
                     <span>{label}</span>
                     <span className="font-mono text-solus-text-muted">{unit}</span>
                   </label>
-                  <input
-                    type="number"
-                    value={params[key] ?? 0}
-                    step={step}
+                  <input type="number" value={params[key] ?? 0} step={step}
                     onChange={e => setParams(prev => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))}
-                    className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent"
-                  />
+                    className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent" />
                 </div>
               ))}
             </div>
@@ -238,23 +265,15 @@ export default function SimulatorTab() {
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-solus-text-dim mb-1 block">Left Wheel</label>
-                <input
-                  type="number"
-                  value={leftSpeed}
-                  step={0.1}
+                <input type="number" value={leftSpeed} step={0.5}
                   onChange={e => setLeftSpeed(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent"
-                />
+                  className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent" />
               </div>
               <div>
                 <label className="text-xs text-solus-text-dim mb-1 block">Right Wheel</label>
-                <input
-                  type="number"
-                  value={rightSpeed}
-                  step={0.1}
+                <input type="number" value={rightSpeed} step={0.5}
                   onChange={e => setRightSpeed(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent"
-                />
+                  className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent" />
               </div>
             </div>
           </Card>
@@ -262,106 +281,115 @@ export default function SimulatorTab() {
           <Card title="Simulation Settings" compact>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-solus-text-dim mb-1 block">Steps</label>
-                <input
-                  type="number"
-                  value={nSteps}
-                  step={50}
-                  min={1}
+                <label className="text-xs text-solus-text-dim mb-1 block">Max Steps</label>
+                <input type="number" value={nSteps} step={100} min={1}
                   onChange={e => setNSteps(parseInt(e.target.value) || 100)}
-                  className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent"
-                />
+                  className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent" />
               </div>
               <div>
                 <label className="text-xs text-solus-text-dim mb-1 block">Time Step (s)</label>
-                <input
-                  type="number"
-                  value={dt}
-                  step={0.005}
-                  min={0.001}
+                <input type="number" value={dt} step={0.005} min={0.001}
                   onChange={e => setDt(parseFloat(e.target.value) || 0.01)}
-                  className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent"
-                />
+                  className="w-full bg-solus-elevated border border-solus-border rounded px-2 py-1.5 text-xs font-mono text-solus-text focus:outline-none focus:border-solus-accent" />
+              </div>
+              <div>
+                <label className="text-xs text-solus-text-dim mb-1 block">Playback Speed</label>
+                <div className="flex items-center gap-2">
+                  <input type="range" min={0.25} max={4} step={0.25} value={playbackSpeed}
+                    onChange={e => setPlaybackSpeed(parseFloat(e.target.value))}
+                    className="flex-1" />
+                  <span className="text-xs font-mono text-solus-text w-10 text-right">{playbackSpeed}x</span>
+                </div>
               </div>
             </div>
           </Card>
 
-          {finalPosition && (
-            <Card title="Final Position" compact>
-              <div className="space-y-1 font-mono text-xs">
+          {/* Step counter */}
+          {stepCount > 0 && (
+            <Card title="Progress" compact>
+              <div className="font-mono text-xs text-solus-text">
                 <div className="flex justify-between">
-                  <span className="text-solus-text-dim">x</span>
-                  <span className="text-solus-text">{finalPosition.x.toFixed(4)} m</span>
+                  <span className="text-solus-text-dim">Steps</span>
+                  <span>{stepCount} / {nSteps}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-solus-text-dim">y</span>
-                  <span className="text-solus-text">{finalPosition.y.toFixed(4)} m</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-solus-text-dim">θ</span>
-                  <span className="text-solus-text">{(finalPosition.theta * 180 / Math.PI).toFixed(2)}°</span>
+                <div className="mt-2 h-1.5 bg-solus-elevated rounded-full overflow-hidden">
+                  <div className="h-full bg-solus-accent rounded-full transition-all"
+                    style={{ width: `${Math.min(100, (stepCount / nSteps) * 100)}%` }} />
                 </div>
               </div>
             </Card>
           )}
         </div>
 
-        {/* Right Panel: Charts + Discrepancies */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {trajectory.length === 0 ? (
-            <EmptyState
-              title="No simulation data"
-              description="Set parameters and click 'Run Simulation' to see the trajectory."
+        {/* Right Panel: Viewer + Charts */}
+        <div className="flex-1 overflow-y-auto">
+          {/* Model source bar */}
+          <ModelSourceBar
+            activeSource={modelSource}
+            loading={modelLoading}
+            onLoadDefault={handleLoadDefault}
+            onUploadFile={handleUploadFile}
+            onImportOnshape={handleImportOnshape}
+          />
+
+          <div className="p-4 space-y-4">
+            {/* 3D Viewer */}
+            <MuJoCoViewer
+              ref={viewerRef}
+              maxSteps={nSteps}
+              playbackSpeed={playbackSpeed}
+              onTrajectoryUpdate={handleTrajectoryUpdate}
+              onSimComplete={handleSimComplete}
+              onReady={() => setWasmReady(true)}
+              onError={() => setWasmReady(false)}
             />
-          ) : (
-            <>
-              <Card title="Trajectory (X-Y Path)">
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={trajectory}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
-                      <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} label={{ value: 'x (m)', position: 'insideBottom', offset: -5, style: { fontSize: 10, fill: '#94a3b8' } }} />
-                      <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} label={{ value: 'y (m)', angle: -90, position: 'insideLeft', style: { fontSize: 10, fill: '#94a3b8' } }} />
-                      <Tooltip contentStyle={{ backgroundColor: '#12121a', border: '1px solid #2a2a3a', borderRadius: 6, fontSize: 11 }} labelStyle={{ color: '#94a3b8' }} formatter={(value: number) => [value.toFixed(4), '']} />
-                      <Line type="monotone" dataKey="y" stroke="#6366f1" dot={false} strokeWidth={2} />
-                    </LineChart>
-                  </ResponsiveContainer>
+
+            {/* Charts */}
+            {trajectory.length > 0 && (
+              <>
+                <Card title="Trajectory (X-Y Path)">
+                  <div className="h-48">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={trajectory}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
+                        <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                        <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                        <Tooltip contentStyle={{ backgroundColor: '#12121a', border: '1px solid #2a2a3a', borderRadius: 6, fontSize: 11 }} formatter={(value: number) => [value.toFixed(4), '']} />
+                        <Line type="monotone" dataKey="y" stroke="#6366f1" dot={false} strokeWidth={2} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </Card>
+
+                <Card title="Velocity Over Time">
+                  <div className="h-40">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={trajectory}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
+                        <XAxis dataKey="timestamp" stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                        <YAxis stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                        <Tooltip contentStyle={{ backgroundColor: '#12121a', border: '1px solid #2a2a3a', borderRadius: 6, fontSize: 11 }} formatter={(value: number) => [value.toFixed(4), '']} />
+                        <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
+                        <Line type="monotone" dataKey="v_linear" name="Linear (m/s)" stroke="#22c55e" dot={false} strokeWidth={1.5} />
+                        <Line type="monotone" dataKey="v_angular" name="Angular (rad/s)" stroke="#f59e0b" dot={false} strokeWidth={1.5} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </Card>
+
+                <div className="flex items-center gap-2">
+                  <button onClick={runComparison} disabled={comparing}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-solus-text-dim bg-solus-elevated border border-solus-border rounded-md hover:bg-solus-surface transition-colors disabled:opacity-50 cursor-pointer">
+                    {comparing ? <LoadingSpinner size="sm" /> : <ArrowRight size={14} />}
+                    Compare Sim vs Runtime
+                  </button>
+                  {discrepancies.length === 0 && !comparing && (
+                    <span className="text-xs text-solus-text-muted">Generates mock runtime data with noise for demo</span>
+                  )}
                 </div>
-              </Card>
 
-              <Card title="Velocity Over Time">
-                <div className="h-48">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={trajectory}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
-                      <XAxis dataKey="timestamp" stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} label={{ value: 'Time (s)', position: 'insideBottom', offset: -5, style: { fontSize: 10, fill: '#94a3b8' } }} />
-                      <YAxis stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                      <Tooltip contentStyle={{ backgroundColor: '#12121a', border: '1px solid #2a2a3a', borderRadius: 6, fontSize: 11 }} formatter={(value: number) => [value.toFixed(4), '']} />
-                      <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-                      <Line type="monotone" dataKey="v_linear" name="Linear (m/s)" stroke="#22c55e" dot={false} strokeWidth={1.5} />
-                      <Line type="monotone" dataKey="v_angular" name="Angular (rad/s)" stroke="#f59e0b" dot={false} strokeWidth={1.5} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </Card>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={runComparison}
-                  disabled={comparing}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-solus-text-dim bg-solus-elevated border border-solus-border rounded-md hover:bg-solus-surface transition-colors disabled:opacity-50 cursor-pointer"
-                >
-                  {comparing ? <LoadingSpinner size="sm" /> : <ArrowRight size={14} />}
-                  Compare Sim vs Runtime
-                </button>
-                {discrepancies.length === 0 && trajectory.length > 0 && !comparing && (
-                  <span className="text-xs text-solus-text-muted">Generates mock runtime data with noise for demo</span>
-                )}
-              </div>
-
-              {discrepancies.length > 0 && (
-                <Card title="Discrepancies (Sim vs Runtime)">
-                  <div className="overflow-x-auto">
+                {discrepancies.length > 0 && (
+                  <Card title="Discrepancies (Sim vs Runtime)">
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="border-b border-solus-border">
@@ -369,7 +397,7 @@ export default function SimulatorTab() {
                           <th className="text-right py-2 px-2 text-solus-text-dim font-medium">Simulated</th>
                           <th className="text-right py-2 px-2 text-solus-text-dim font-medium">Observed</th>
                           <th className="text-right py-2 px-2 text-solus-text-dim font-medium">Delta</th>
-                          <th className="text-right py-2 px-2 text-solus-text-dim font-medium"></th>
+                          <th className="text-right py-2 px-2"></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -378,18 +406,18 @@ export default function SimulatorTab() {
                         ))}
                       </tbody>
                     </table>
-                  </div>
-                </Card>
-              )}
-            </>
-          )}
+                  </Card>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
   )
 }
 
-// ── Discrepancy Row with Explain Button ──
+// ── Discrepancy Row ──
 
 function DiscrepancyRow({ discrepancy }: { discrepancy: Discrepancy }) {
   const { currentProjectId, queryAgent } = useProjectStore()
@@ -400,17 +428,13 @@ function DiscrepancyRow({ discrepancy }: { discrepancy: Discrepancy }) {
     if (!currentProjectId) return
     setExplaining(true)
     try {
-      const result = await queryAgent(
-        currentProjectId,
-        `Explain this simulation discrepancy: The signal "${discrepancy.signal}" has a simulated value of ${discrepancy.simulated} but the observed runtime value is ${discrepancy.observed} (delta: ${discrepancy.delta}). What could cause this difference and what should I check?`,
+      const result = await queryAgent(currentProjectId,
+        `Explain this simulation discrepancy: The signal "${discrepancy.signal}" has a simulated value of ${discrepancy.simulated} but the observed runtime value is ${discrepancy.observed} (delta: ${discrepancy.delta}). What could cause this difference?`,
         'general'
       ) as { response_text: string }
       setExplanation(result.response_text)
-    } catch {
-      setExplanation('Failed to get explanation.')
-    } finally {
-      setExplaining(false)
-    }
+    } catch { setExplanation('Failed to get explanation.') }
+    finally { setExplaining(false) }
   }
 
   return (
@@ -421,21 +445,16 @@ function DiscrepancyRow({ discrepancy }: { discrepancy: Discrepancy }) {
         <td className="py-2 px-2 font-mono text-right text-solus-warning">{discrepancy.observed.toFixed(4)}</td>
         <td className="py-2 px-2 font-mono text-right text-solus-error">{discrepancy.delta.toFixed(4)}</td>
         <td className="py-2 px-2 text-right">
-          <button
-            onClick={handleExplain}
-            disabled={explaining}
-            className="text-xs text-solus-accent hover:text-solus-accent-bright cursor-pointer disabled:opacity-50"
-          >
+          <button onClick={handleExplain} disabled={explaining}
+            className="text-xs text-solus-accent hover:text-solus-accent-bright cursor-pointer disabled:opacity-50">
             {explaining ? '...' : 'Explain'}
           </button>
         </td>
       </tr>
       {explanation && (
-        <tr>
-          <td colSpan={5} className="px-2 py-2 text-xs text-solus-text-dim bg-solus-elevated/30">
-            <div className="max-h-32 overflow-y-auto whitespace-pre-wrap">{explanation}</div>
-          </td>
-        </tr>
+        <tr><td colSpan={5} className="px-2 py-2 text-xs text-solus-text-dim bg-solus-elevated/30">
+          <div className="max-h-32 overflow-y-auto whitespace-pre-wrap">{explanation}</div>
+        </td></tr>
       )}
     </>
   )
