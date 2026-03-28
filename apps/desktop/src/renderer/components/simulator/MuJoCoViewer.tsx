@@ -79,6 +79,9 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
 
   const init = useCallback(async () => {
     try {
+      // Guard against double-init (React StrictMode)
+      if (rendererRef.current) return
+
       setStatus('loading')
 
       // Set up Three.js first
@@ -99,6 +102,10 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
       const renderer = new THREE.WebGLRenderer({ antialias: true })
       renderer.setSize(width, height)
       renderer.setPixelRatio(window.devicePixelRatio)
+      // Remove any existing canvas (prevents stacking from StrictMode double-mount)
+      Array.from(containerRef.current.children).forEach(child => {
+        if (child instanceof HTMLCanvasElement) child.remove()
+      })
       containerRef.current.appendChild(renderer.domElement)
       rendererRef.current = renderer
 
@@ -243,13 +250,6 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
         quat.setFromRotationMatrix(mat4)
         mesh.quaternion.copy(quat)
 
-        // Cylinder axis correction (Three.js Y-axis vs MuJoCo Z-axis)
-        if (geomType === 5) {
-          const correction = new THREE.Quaternion()
-          correction.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2)
-          mesh.quaternion.multiply(correction)
-        }
-
         carGroup.add(mesh)
 
         // Track wheel geoms by name pattern (they're cylinders with "wheel" in geom name)
@@ -392,7 +392,8 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
   useEffect(() => {
     if (status === 'ready') startRenderLoop()
     return () => stopRenderLoop()
-  }, [status, startRenderLoop, stopRenderLoop])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status])
 
   // ── Imperative Handle ──
 
