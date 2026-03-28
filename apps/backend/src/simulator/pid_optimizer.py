@@ -37,10 +37,13 @@ def simulate_with_pid(kp: float, ki: float, kd: float,
     integral, prev_error = 0.0, 0.0
     trajectory = []
 
-    # Heading disturbances in the first 30% of the sim — simulates the robot
-    # struggling to find the line. After that it just drives with whatever
-    # heading it has (good PID corrects early, bad PID drifts permanently).
-    disturbance_steps = int(n_steps * 0.3)
+    # A few discrete heading bumps early on — simulates the robot
+    # misjudging the line. Good PID corrects, bad PID drifts off.
+    bump_steps = {
+        int(n_steps * 0.05): 0.08,   # small bump at 5%
+        int(n_steps * 0.15): -0.12,  # overcorrect at 15%
+        int(n_steps * 0.25): 0.06,   # another nudge at 25%
+    }
 
     for step in range(n_steps):
         # Heading error: how far from theta=0 (straight ahead)
@@ -67,10 +70,9 @@ def simulate_with_pid(kp: float, ki: float, kd: float,
         y += v_linear * math.sin(theta) * dt
         theta += v_angular * dt
 
-        # Add heading noise in the early phase — random bumps as if
-        # the robot can't accurately find the line
-        if step < disturbance_steps:
-            theta += random.gauss(0, 0.02)
+        # Discrete heading bumps at specific steps
+        if step in bump_steps:
+            theta += bump_steps[step]
 
         trajectory.append({
             "x": round(x, 6),
