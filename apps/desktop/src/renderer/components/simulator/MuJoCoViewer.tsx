@@ -338,7 +338,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
         car.position.y = point.y
 
         // Yaw rotation around MuJoCo Z axis
-        car.rotation.z = point.theta
+        car.rotation.y = point.theta
 
         // Spin wheels based on forward velocity
         const wheelRotationDelta = (point.v_linear / 0.0325) * (deltaMs / 1000)
@@ -413,7 +413,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
       if (car) {
         car.position.x = 0
         car.position.y = 0
-        car.rotation.z = 0
+        car.rotation.y = 0
       }
     },
     isPlaying: () => playingRef.current,
