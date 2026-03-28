@@ -358,94 +358,109 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
   }, [])
 
   // ── Animation Loop ──
+  // Uses refs for callbacks to avoid identity changes that spawn duplicate loops.
 
-  const animationLoop = useCallback(() => {
-    const mj = mujocoRef.current
-    const model = modelRef.current
-    const data = dataRef.current
+  const onTrajectoryUpdateRef = useRef(onTrajectoryUpdate)
+  const onSimCompleteRef = useRef(onSimComplete)
+  useEffect(() => { onTrajectoryUpdateRef.current = onTrajectoryUpdate }, [onTrajectoryUpdate])
+  useEffect(() => { onSimCompleteRef.current = onSimComplete }, [onSimComplete])
 
-    if (!mj || !model || !data) {
-      animFrameRef.current = requestAnimationFrame(animationLoop)
+  const loopRunningRef = useRef(false)
+  const trajectoryFrameCounter = useRef(0)
+
+  const startAnimationLoop = useCallback(() => {
+    // Prevent duplicate loops
+    if (loopRunningRef.current) return
+    loopRunningRef.current = true
+
+    const tick = () => {
+      if (!loopRunningRef.current) return  // stop flag
+
+      const mj = mujocoRef.current
+      const model = modelRef.current
+      const data = dataRef.current
+
+      if (mj && model && data && playingRef.current && stepCountRef.current < maxStepsRef.current) {
+        const stepsPerFrame = Math.max(1, Math.round(playbackSpeedRef.current))
+
+        for (let i = 0; i < stepsPerFrame && stepCountRef.current < maxStepsRef.current; i++) {
+          data.ctrl[0] = leftSpeedRef.current
+          data.ctrl[1] = rightSpeedRef.current
+          data.ctrl[2] = leftSpeedRef.current
+          data.ctrl[3] = rightSpeedRef.current
+
+          mj.mj_step(model, data)
+          stepCountRef.current++
+
+          const roverBodyId = 1
+          const x = data.xpos[roverBodyId * 3 + 0]
+          const y = data.xpos[roverBodyId * 3 + 1]
+
+          const qw = data.xquat[roverBodyId * 4 + 0]
+          const qx = data.xquat[roverBodyId * 4 + 1]
+          const qy = data.xquat[roverBodyId * 4 + 2]
+          const qz = data.xquat[roverBodyId * 4 + 3]
+          const theta = Math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
+
+          const vx = data.qvel[0] || 0
+          const vy = data.qvel[1] || 0
+          const v_linear = Math.sqrt(vx * vx + vy * vy)
+          const v_angular = data.qvel[5] || 0
+
+          trajectoryRef.current.push({
+            x, y, theta,
+            v_linear, v_angular,
+            timestamp: data.time,
+            step: stepCountRef.current,
+          })
+        }
+
+        // Throttle trajectory updates to every 10th frame to avoid re-render cascade
+        trajectoryFrameCounter.current++
+        if (trajectoryFrameCounter.current % 10 === 0) {
+          onTrajectoryUpdateRef.current?.(trajectoryRef.current)
+        }
+
+        if (stepCountRef.current >= maxStepsRef.current) {
+          playingRef.current = false
+          onTrajectoryUpdateRef.current?.(trajectoryRef.current)
+          onSimCompleteRef.current?.()
+        }
+      }
+
+      syncVisuals()
       renderFrame()
-      return
+      animFrameRef.current = requestAnimationFrame(tick)
     }
 
-    if (playingRef.current && stepCountRef.current < maxStepsRef.current) {
-      // Steps per frame based on playback speed
-      const stepsPerFrame = Math.max(1, Math.round(playbackSpeedRef.current))
+    animFrameRef.current = requestAnimationFrame(tick)
+  }, [syncVisuals, renderFrame])
 
-      for (let i = 0; i < stepsPerFrame && stepCountRef.current < maxStepsRef.current; i++) {
-        // Set actuator controls: left pair (0, 2), right pair (1, 3)
-        data.ctrl[0] = leftSpeedRef.current
-        data.ctrl[1] = rightSpeedRef.current
-        data.ctrl[2] = leftSpeedRef.current
-        data.ctrl[3] = rightSpeedRef.current
-
-        // Step physics
-        mj.mj_step(model, data)
-        stepCountRef.current++
-
-        // Extract rover body position for trajectory
-        // Body 1 is the rover (body 0 is world)
-        const roverBodyId = 1
-        const x = data.xpos[roverBodyId * 3 + 0]
-        const y = data.xpos[roverBodyId * 3 + 1]
-
-        // Extract orientation (quaternion → yaw angle)
-        const qw = data.xquat[roverBodyId * 4 + 0]
-        const qx = data.xquat[roverBodyId * 4 + 1]
-        const qy = data.xquat[roverBodyId * 4 + 2]
-        const qz = data.xquat[roverBodyId * 4 + 3]
-        const theta = Math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
-
-        // Compute velocities
-        const vx = data.qvel[0] || 0
-        const vy = data.qvel[1] || 0
-        const v_linear = Math.sqrt(vx * vx + vy * vy)
-        const v_angular = data.qvel[5] || 0 // angular velocity around z
-
-        trajectoryRef.current.push({
-          x, y, theta,
-          v_linear, v_angular,
-          timestamp: data.time,
-          step: stepCountRef.current,
-        })
-      }
-
-      onTrajectoryUpdate?.(trajectoryRef.current)
-
-      if (stepCountRef.current >= maxStepsRef.current) {
-        playingRef.current = false
-        onSimComplete?.()
-      }
-    }
-
-    syncVisuals()
-    renderFrame()
-    animFrameRef.current = requestAnimationFrame(animationLoop)
-  }, [renderFrame, syncVisuals, onTrajectoryUpdate, onSimComplete])
+  const stopAnimationLoop = useCallback(() => {
+    loopRunningRef.current = false
+    cancelAnimationFrame(animFrameRef.current)
+  }, [])
 
   // ── Lifecycle ──
 
   useEffect(() => {
     initMujoco()
     return () => {
-      cancelAnimationFrame(animFrameRef.current)
-      // Clean up resize listener
+      stopAnimationLoop()
       const handler = (containerRef.current as any)?._resizeHandler
       if (handler) window.removeEventListener('resize', handler)
       rendererRef.current?.dispose()
       dataRef.current?.delete?.()
       modelRef.current?.delete?.()
     }
-  }, [initMujoco])
+  }, [initMujoco, stopAnimationLoop])
 
   useEffect(() => {
     if (status === 'ready') {
-      animFrameRef.current = requestAnimationFrame(animationLoop)
+      startAnimationLoop()
     }
-    return () => cancelAnimationFrame(animFrameRef.current)
-  }, [status, animationLoop])
+    return () => stopAnimationLoop()
+  }, [status, startAnimationLoop, stopAnimationLoop])
 
   // ── Imperative Handle ──
 
