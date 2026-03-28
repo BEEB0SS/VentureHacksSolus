@@ -1,73 +1,113 @@
-<mujoco model="elegoo-rover-v3">
-  <compiler angle="radian" meshdir="meshes"/>
+<mujoco model="elegoo_smart_car_v4">
+  <compiler angle="degree" autolimits="true"/>
 
-  <option timestep="0.01" gravity="0 0 -9.81" integrator="implicit"/>
+  <option timestep="0.002" gravity="0 0 -9.81" iterations="50" solver="Newton"/>
+
+  <default>
+    <joint damping="0.05" armature="0.01"/>
+    <geom condim="3" friction="1.0 0.005 0.001" solimp="0.95 0.99 0.001" solref="0.02 1"/>
+    <motor ctrlrange="-10 10"/>
+  </default>
 
   <asset>
-    <mesh name="car_body" file="elegoo_v3_car.stl" scale="0.001 0.001 0.001"/>
-
-    <material name="car_mat" rgba="0.15 0.15 0.2 1"/>
-    <material name="wheel_mat" rgba="0.1 0.1 0.1 1"/>
-    <material name="accent_mat" rgba="0.2 0.4 0.8 1"/>
-    <texture name="grid" type="2d" builtin="checker" rgb1="0.3 0.3 0.35" rgb2="0.25 0.25 0.3" width="512" height="512"/>
+    <texture name="grid" type="2d" builtin="checker" rgb1="0.25 0.25 0.3" rgb2="0.18 0.18 0.22" width="512" height="512"/>
     <material name="grid_mat" texture="grid" texrepeat="10 10" texuniform="true"/>
+    <material name="chassis_mat" rgba="0.15 0.15 0.2 1"/>
+    <material name="pcb_mat" rgba="0.05 0.35 0.15 1"/>
+    <material name="tire_mat" rgba="0.2 0.2 0.2 1"/>
+    <material name="sensor_mat" rgba="0.3 0.3 0.35 1"/>
+    <material name="motor_mat" rgba="0.6 0.55 0.1 1"/>
+    <material name="led_mat" rgba="0.9 0.1 0.1 1"/>
+    <material name="camera_mat" rgba="0.2 0.2 0.3 1"/>
+    <material name="battery_mat" rgba="0.15 0.15 0.4 1"/>
   </asset>
 
   <worldbody>
-    <geom name="ground" type="plane" size="5 5 0.1" material="grid_mat"/>
-    <light pos="0 0 3" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
-    <light pos="2 2 3" dir="-0.5 -0.5 -1" diffuse="0.4 0.4 0.4"/>
+    <light directional="true" diffuse="0.8 0.8 0.8" specular="0.3 0.3 0.3" pos="0 0 4" dir="0 0 -1"/>
+    <geom name="floor" type="plane" size="5 5 0.1" material="grid_mat"/>
 
-    <body name="rover" pos="0 0 0.06">
-      <joint name="rover_free" type="free"/>
-      <inertial pos="0 0 0.01" mass="0.35" diaginertia="0.001 0.002 0.002"/>
+    <!-- Chassis: wheels are r=0.0325, mounted at z=-0.022 relative to chassis.
+         So chassis z = 0.0325 + 0.022 = 0.0545 for wheels to just touch ground. -->
+    <body name="chassis" pos="0 0 0.0545">
+      <freejoint name="root"/>
+      <inertial pos="0 0 0" mass="0.5" diaginertia="0.002 0.003 0.004"/>
 
-      <!-- Collision box -->
-      <geom name="chassis_collision" type="box" size="0.12 0.075 0.025" pos="0 0 0.015"
-            rgba="0 0 0 0" contype="1" conaffinity="1"/>
+      <geom name="chassis_lower" type="box" size="0.12 0.075 0.015" pos="0 0 0" material="chassis_mat"/>
+      <geom name="chassis_upper" type="box" size="0.10 0.065 0.008" pos="0 0 0.03" material="pcb_mat"/>
 
-      <!-- V3 car visual mesh -->
-      <geom name="car_visual" type="mesh" mesh="car_body" material="car_mat"
-            contype="0" conaffinity="0"/>
+      <geom name="standoff_fl" type="cylinder" size="0.004 0.015" pos="0.07 0.05 0.015" material="sensor_mat"/>
+      <geom name="standoff_fr" type="cylinder" size="0.004 0.015" pos="0.07 -0.05 0.015" material="sensor_mat"/>
+      <geom name="standoff_rl" type="cylinder" size="0.004 0.015" pos="-0.07 0.05 0.015" material="sensor_mat"/>
+      <geom name="standoff_rr" type="cylinder" size="0.004 0.015" pos="-0.07 -0.05 0.015" material="sensor_mat"/>
 
-      <!-- Front-left wheel -->
-      <body name="wheel_fl" pos="0.075 0.085 0">
-        <joint name="joint_fl" type="hinge" axis="0 1 0" damping="0.01"/>
-        <geom name="geom_fl" type="cylinder" size="0.0325 0.0125"
-              euler="1.5708 0 0" material="wheel_mat"
-              friction="1.0 0.005 0.001" contype="1" conaffinity="1" mass="0.0375"/>
+      <geom name="battery" type="box" size="0.035 0.03 0.012" pos="-0.03 0 0.015" material="battery_mat" mass="0.15"/>
+      <geom name="arduino" type="box" size="0.035 0.027 0.005" pos="0 0 0.043" material="pcb_mat"/>
+      <geom name="motor_shield" type="box" size="0.035 0.027 0.004" pos="0 0 0.05" material="pcb_mat"/>
+
+      <geom name="ultrasonic_l" type="cylinder" size="0.008 0.005" pos="0.12 0.013 0.06" material="sensor_mat"/>
+      <geom name="ultrasonic_r" type="cylinder" size="0.008 0.005" pos="0.12 -0.013 0.06" material="sensor_mat"/>
+      <geom name="servo_base" type="box" size="0.012 0.012 0.012" pos="0.10 0 0.045" material="motor_mat"/>
+      <geom name="camera" type="box" size="0.015 0.015 0.008" pos="0.11 0 0.07" material="camera_mat"/>
+
+      <geom name="ir_left" type="box" size="0.005 0.003 0.002" pos="0.10 0.02 -0.015" material="led_mat"/>
+      <geom name="ir_center" type="box" size="0.005 0.003 0.002" pos="0.10 0 -0.015" material="led_mat"/>
+      <geom name="ir_right" type="box" size="0.005 0.003 0.002" pos="0.10 -0.02 -0.015" material="led_mat"/>
+
+      <site name="imu_site" pos="0 0 0.03" size="0.005"/>
+
+      <!-- Wheel bodies: pos z=-0.022 puts wheel center below chassis.
+           Cylinder default axis=Z, so euler="90 0 0" rotates axis to Y.
+           Joint hinge axis="0 1 0" rotates around Y. -->
+
+      <body name="wheel_lf" pos="0.06 0.085 -0.022">
+        <joint name="joint_lf" type="hinge" axis="0 1 0"/>
+        <inertial pos="0 0 0" mass="0.04" diaginertia="0.00002 0.00003 0.00002"/>
+        <geom name="motor_lf" type="box" size="0.015 0.012 0.01" pos="0 -0.018 0" material="motor_mat" contype="0" conaffinity="0"/>
+        <geom name="wheel_lf_geom" type="cylinder" size="0.0325 0.0125" euler="90 0 0" material="tire_mat" friction="1.2 0.005 0.001"/>
       </body>
 
-      <!-- Front-right wheel -->
-      <body name="wheel_fr" pos="0.075 -0.085 0">
-        <joint name="joint_fr" type="hinge" axis="0 1 0" damping="0.01"/>
-        <geom name="geom_fr" type="cylinder" size="0.0325 0.0125"
-              euler="1.5708 0 0" material="wheel_mat"
-              friction="1.0 0.005 0.001" contype="1" conaffinity="1" mass="0.0375"/>
+      <body name="wheel_rf" pos="0.06 -0.085 -0.022">
+        <joint name="joint_rf" type="hinge" axis="0 1 0"/>
+        <inertial pos="0 0 0" mass="0.04" diaginertia="0.00002 0.00003 0.00002"/>
+        <geom name="motor_rf" type="box" size="0.015 0.012 0.01" pos="0 0.018 0" material="motor_mat" contype="0" conaffinity="0"/>
+        <geom name="wheel_rf_geom" type="cylinder" size="0.0325 0.0125" euler="90 0 0" material="tire_mat" friction="1.2 0.005 0.001"/>
       </body>
 
-      <!-- Rear-left wheel -->
-      <body name="wheel_rl" pos="-0.075 0.085 0">
-        <joint name="joint_rl" type="hinge" axis="0 1 0" damping="0.01"/>
-        <geom name="geom_rl" type="cylinder" size="0.0325 0.0125"
-              euler="1.5708 0 0" material="wheel_mat"
-              friction="1.0 0.005 0.001" contype="1" conaffinity="1" mass="0.0375"/>
+      <body name="wheel_lr" pos="-0.06 0.085 -0.022">
+        <joint name="joint_lr" type="hinge" axis="0 1 0"/>
+        <inertial pos="0 0 0" mass="0.04" diaginertia="0.00002 0.00003 0.00002"/>
+        <geom name="motor_lr" type="box" size="0.015 0.012 0.01" pos="0 -0.018 0" material="motor_mat" contype="0" conaffinity="0"/>
+        <geom name="wheel_lr_geom" type="cylinder" size="0.0325 0.0125" euler="90 0 0" material="tire_mat" friction="1.2 0.005 0.001"/>
       </body>
 
-      <!-- Rear-right wheel -->
-      <body name="wheel_rr" pos="-0.075 -0.085 0">
-        <joint name="joint_rr" type="hinge" axis="0 1 0" damping="0.01"/>
-        <geom name="geom_rr" type="cylinder" size="0.0325 0.0125"
-              euler="1.5708 0 0" material="wheel_mat"
-              friction="1.0 0.005 0.001" contype="1" conaffinity="1" mass="0.0375"/>
+      <body name="wheel_rr" pos="-0.06 -0.085 -0.022">
+        <joint name="joint_rr" type="hinge" axis="0 1 0"/>
+        <inertial pos="0 0 0" mass="0.04" diaginertia="0.00002 0.00003 0.00002"/>
+        <geom name="motor_rr" type="box" size="0.015 0.012 0.01" pos="0 0.018 0" material="motor_mat" contype="0" conaffinity="0"/>
+        <geom name="wheel_rr_geom" type="cylinder" size="0.0325 0.0125" euler="90 0 0" material="tire_mat" friction="1.2 0.005 0.001"/>
       </body>
+
     </body>
   </worldbody>
 
   <actuator>
-    <velocity name="motor_fl" joint="joint_fl" kv="20" ctrlrange="-10 10"/>
-    <velocity name="motor_fr" joint="joint_fr" kv="20" ctrlrange="-10 10"/>
-    <velocity name="motor_rl" joint="joint_rl" kv="20" ctrlrange="-10 10"/>
-    <velocity name="motor_rr" joint="joint_rr" kv="20" ctrlrange="-10 10"/>
+    <velocity name="act_lf" joint="joint_lf" kv="0.5"/>
+    <velocity name="act_rf" joint="joint_rf" kv="0.5"/>
+    <velocity name="act_lr" joint="joint_lr" kv="0.5"/>
+    <velocity name="act_rr" joint="joint_rr" kv="0.5"/>
   </actuator>
+
+  <sensor>
+    <jointvel name="vel_lf" joint="joint_lf"/>
+    <jointvel name="vel_rf" joint="joint_rf"/>
+    <jointvel name="vel_lr" joint="joint_lr"/>
+    <jointvel name="vel_rr" joint="joint_rr"/>
+    <accelerometer name="imu_accel" site="imu_site"/>
+    <gyro name="imu_gyro" site="imu_site"/>
+    <framepos name="chassis_pos" objtype="body" objname="chassis"/>
+    <framequat name="chassis_quat" objtype="body" objname="chassis"/>
+    <framelinvel name="chassis_linvel" objtype="body" objname="chassis"/>
+    <frameangvel name="chassis_angvel" objtype="body" objname="chassis"/>
+  </sensor>
+
 </mujoco>
