@@ -233,7 +233,7 @@ export default function SimulatorTab() {
   // Shared styles
   const inputCls = "w-full bg-solus-bg border border-solus-border/50 rounded-lg px-3 py-2 text-[13px] font-mono text-solus-text focus:outline-none focus:border-solus-accent/50 transition-colors"
   const btnBase = "flex items-center gap-2 px-5 py-2.5 text-[13px] font-medium rounded-lg transition-colors cursor-pointer"
-  const btnGhost = `${btnBase} text-solus-text-dim hover:text-solus-text hover:bg-solus-elevated`
+  const btnGhost = `${btnBase} text-solus-text-dim bg-solus-elevated border border-solus-border/40 hover:text-solus-text hover:border-solus-border`
   const btnPrimary = `${btnBase} text-white bg-solus-accent hover:bg-solus-accent-bright disabled:opacity-40`
   const btnSuccess = `${btnBase} text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40`
 
