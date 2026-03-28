@@ -69,12 +69,19 @@ export default function SimulatorTab() {
   const [optimGoal, setOptimGoal] = useState('Tune PID gains to drive a straight line with minimal drift')
   const [viewingOptimized, setViewingOptimized] = useState(false)
   const [optimResult, setOptimResult] = useState<{
-    best_gains: { kp: number; ki: number; kd: number }
+    best_params: Record<string, number | null>
     best_score: number
-    bad_score: number
+    baseline_score: number
     best_trajectory: TrajectoryPoint[]
-    bad_trajectory: TrajectoryPoint[]
+    baseline_trajectory: TrajectoryPoint[]
     trials_run: number
+    new_mjcf: string | null
+    mjcf_changed: boolean
+    explanation: string
+    changes_summary: string[]
+    search_space: Record<string, number[]>
+    scoring_function: string
+    graph_constraints_used: string[]
   } | null>(null)
 
   // ── Handlers ──
@@ -93,11 +100,24 @@ export default function SimulatorTab() {
 
   const handlePlay = useCallback(() => {
     if (optimResult) {
-      // After optimization: run with PID gains in live MuJoCo physics
-      const gains = viewingOptimized ? optimResult.best_gains : { kp: 0, ki: 0, kd: 0 }
-      viewerRef.current?.playWithPID(gains.kp, gains.ki, gains.kd, 1.0)
+      const bp = optimResult.best_params
+      if (viewingOptimized) {
+        // After: use best params from search
+        if (bp.left_speed != null && bp.right_speed != null) {
+          viewerRef.current?.play(bp.left_speed as number, bp.right_speed as number)
+        } else {
+          viewerRef.current?.playWithPID(
+            (bp.pid_kp as number) || 0,
+            (bp.pid_ki as number) || 0,
+            (bp.pid_kd as number) || 0,
+            (bp.target_speed as number) || 1.0,
+          )
+        }
+      } else {
+        // Before: no PID correction (baseline)
+        viewerRef.current?.playWithPID(0, 0, 0, 1.0)
+      }
     } else {
-      // No optimization — run live MuJoCo with direct wheel speeds
       viewerRef.current?.play(leftSpeed, rightSpeed)
     }
     setTrajectory([])
@@ -139,23 +159,47 @@ export default function SimulatorTab() {
     setError(null)
     setOptimResult(null)
     try {
-      const res = await fetch(`${API_BASE}/api/projects/${currentProjectId}/simulator/optimize`, {
+      // Fetch current MJCF
+      const mjcfRes = await fetch('/models/elegoo-rover.xml')
+      const currentMjcf = await mjcfRes.text()
+
+      const res = await fetch(`${API_BASE}/api/projects/${currentProjectId}/simulator/ai-tune`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ n_trials: 100, n_steps: 200 }),
+        body: JSON.stringify({
+          goal: optimGoal,
+          current_mjcf: currentMjcf,
+          current_params: {
+            left_speed: leftSpeed,
+            right_speed: rightSpeed,
+            pid_gains: { kp: 0, ki: 0, kd: 0 },
+            target_speed: 1.0,
+          },
+          n_trials: 100,
+          n_steps: 200,
+        }),
       })
-      if (!res.ok) throw new Error(`Optimization failed: ${res.statusText}`)
+      if (!res.ok) throw new Error(`AI tuning failed: ${res.statusText}`)
       const result = await res.json()
       setOptimResult(result)
       setViewingOptimized(true)
       setTrajectory(result.best_trajectory)
       setShowOptimizeInput(false)
+
+      // If MJCF was changed, reload the model in the viewer
+      if (result.mjcf_changed && result.new_mjcf) {
+        try {
+          await viewerRef.current?.loadModelFromXml(result.new_mjcf)
+        } catch (err) {
+          console.warn('Failed to reload model:', err)
+        }
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Optimization failed')
+      setError(err instanceof Error ? err.message : 'AI tuning failed')
     } finally {
       setOptimizing(false)
     }
-  }, [currentProjectId])
+  }, [currentProjectId, optimGoal, leftSpeed, rightSpeed])
 
   // Compare with mock runtime data
   const runComparison = useCallback(async () => {
@@ -230,7 +274,7 @@ export default function SimulatorTab() {
           {optimResult && (
             <div className="flex items-center bg-solus-elevated border border-solus-border rounded-md overflow-hidden">
               <button
-                onClick={() => { setViewingOptimized(false); setTrajectory(optimResult.bad_trajectory) }}
+                onClick={() => { setViewingOptimized(false); setTrajectory(optimResult.baseline_trajectory) }}
                 className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
                   !viewingOptimized ? 'bg-red-600 text-white' : 'text-solus-text-dim hover:bg-solus-surface'
                 }`}
@@ -418,37 +462,100 @@ export default function SimulatorTab() {
                 </Card>
 
                 {optimResult && (
-                <Card title="Optimization Result">
+                <Card title="AI Optimization Result">
                   <div className="space-y-3">
+                    {/* Score improvement */}
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-solus-text-dim">Score improvement</span>
                       <span className="text-sm font-mono font-semibold text-green-400">
-                        {optimResult.bad_score.toFixed(4)} → {optimResult.best_score.toFixed(4)}
-                        {' '}({((1 - optimResult.best_score / optimResult.bad_score) * 100).toFixed(0)}% better)
+                        {optimResult.baseline_score.toFixed(4)} → {optimResult.best_score.toFixed(4)}
+                        {optimResult.baseline_score > 0 && (
+                          <> ({((1 - optimResult.best_score / optimResult.baseline_score) * 100).toFixed(0)}% better)</>
+                        )}
                       </span>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      {Object.entries(optimResult.best_gains).map(([key, value]) => (
-                        <div key={key} className="bg-solus-elevated rounded px-2 py-1.5 text-center">
-                          <div className="text-xs text-solus-text-muted">{key.toUpperCase()}</div>
-                          <div className="text-sm font-mono font-semibold text-solus-accent">{value.toFixed(3)}</div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="text-xs text-solus-text-muted">
-                      Tested {optimResult.trials_run} candidates
+
+                    {/* Gemini's explanation */}
+                    <div className="bg-solus-elevated/50 rounded-md p-3">
+                      <p className="text-xs text-solus-text-dim mb-1 font-semibold">AI Analysis</p>
+                      <p className="text-xs text-solus-text whitespace-pre-wrap">{optimResult.explanation}</p>
                     </div>
 
-                    {/* Before/After Trajectory Overlay */}
+                    {/* Changes summary */}
+                    {optimResult.changes_summary.length > 0 && (
+                      <div>
+                        <p className="text-xs text-solus-text-dim mb-1 font-semibold">Changes Made</p>
+                        <ul className="text-xs text-solus-text space-y-0.5">
+                          {optimResult.changes_summary.map((c, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-solus-accent mt-0.5">•</span>
+                              <span>{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Graph constraints used */}
+                    {optimResult.graph_constraints_used.length > 0 && (
+                      <div>
+                        <p className="text-xs text-solus-text-dim mb-1 font-semibold">Context Model Constraints</p>
+                        <ul className="text-xs text-solus-text-muted space-y-0.5">
+                          {optimResult.graph_constraints_used.map((c, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-solus-warning mt-0.5">⚡</span>
+                              <span>{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Search space */}
+                    {Object.keys(optimResult.search_space).length > 0 && (
+                      <div>
+                        <p className="text-xs text-solus-text-dim mb-1 font-semibold">Search Space</p>
+                        <div className="grid grid-cols-2 gap-1">
+                          {Object.entries(optimResult.search_space).map(([key, range]) => (
+                            <div key={key} className="bg-solus-elevated rounded px-2 py-1 text-xs font-mono">
+                              <span className="text-solus-text-muted">{key}:</span>{' '}
+                              <span className="text-solus-text">[{(range as number[])[0]}, {(range as number[])[1]}]</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Best params */}
+                    <div>
+                      <p className="text-xs text-solus-text-dim mb-1 font-semibold">Best Parameters</p>
+                      <div className="grid grid-cols-3 gap-1">
+                        {Object.entries(optimResult.best_params).filter(([, v]) => v != null).map(([key, value]) => (
+                          <div key={key} className="bg-solus-elevated rounded px-2 py-1 text-center">
+                            <div className="text-[10px] text-solus-text-muted">{key}</div>
+                            <div className="text-xs font-mono font-semibold text-solus-accent">
+                              {typeof value === 'number' ? value.toFixed(3) : String(value)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="text-xs text-solus-text-muted">
+                      Tested {optimResult.trials_run} candidates
+                      {optimResult.mjcf_changed && ' • Model XML modified'}
+                    </div>
+
+                    {/* Before/After trajectory overlay */}
                     <div className="h-48">
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart>
                           <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
-                          <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} label={{ value: 'x (m)', position: 'insideBottom', offset: -5, style: { fontSize: 10, fill: '#94a3b8' } }} />
-                          <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} label={{ value: 'y (m)', angle: -90, position: 'insideLeft', style: { fontSize: 10, fill: '#94a3b8' } }} />
+                          <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                          <YAxis dataKey="y" type="number" domain={['auto', 'auto']} stroke="#64748b" tick={{ fontSize: 10, fill: '#94a3b8' }} />
                           <Tooltip contentStyle={{ backgroundColor: '#12121a', border: '1px solid #2a2a3a', borderRadius: 6, fontSize: 11 }} />
                           <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-                          <Line data={optimResult.bad_trajectory} dataKey="y" name="Before (no PID)" stroke="#ef4444" dot={false} strokeWidth={2} strokeDasharray="5 5" />
+                          <Line data={optimResult.baseline_trajectory} dataKey="y" name="Before" stroke="#ef4444" dot={false} strokeWidth={2} strokeDasharray="5 5" />
                           <Line data={optimResult.best_trajectory} dataKey="y" name="After (optimized)" stroke="#22c55e" dot={false} strokeWidth={2} />
                         </LineChart>
                       </ResponsiveContainer>
