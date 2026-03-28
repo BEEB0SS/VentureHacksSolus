@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { WS_BASE } from '../constants/api'
 
 interface UseWebSocketOptions {
   onMessage?: (data: unknown) => void
@@ -26,17 +27,24 @@ export function useWebSocket(
   const preventReconnectRef = useRef(false)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const onMessageRef = useRef<((data: unknown) => void) | undefined>(undefined)
+  const reconnectIntervalRef = useRef(reconnectInterval)
+  const maxRetriesRef = useRef(maxRetries)
 
   // Keep onMessage ref up to date to avoid stale closures
   useEffect(() => {
     onMessageRef.current = options?.onMessage
   }, [options?.onMessage])
 
+  useEffect(() => {
+    reconnectIntervalRef.current = reconnectInterval
+    maxRetriesRef.current = maxRetries
+  }, [reconnectInterval, maxRetries])
+
   const connect = useCallback(() => {
     if (path === null) return
     if (preventReconnectRef.current) return
 
-    const url = path.startsWith('ws') ? path : `ws://localhost:8000${path}`
+    const url = path.startsWith('ws') ? path : `${WS_BASE}${path}`
 
     const ws = new WebSocket(url)
     socketRef.current = ws
@@ -62,12 +70,12 @@ export function useWebSocket(
 
       if (
         !preventReconnectRef.current &&
-        retryCountRef.current < maxRetries
+        retryCountRef.current < maxRetriesRef.current
       ) {
         retryCountRef.current += 1
         reconnectTimerRef.current = setTimeout(() => {
           connect()
-        }, reconnectInterval)
+        }, reconnectIntervalRef.current)
       }
     }
 
@@ -75,7 +83,7 @@ export function useWebSocket(
       // Close triggers onclose which handles reconnect logic
       ws.close()
     }
-  }, [path, reconnectInterval, maxRetries])
+  }, [path])
 
   useEffect(() => {
     if (path === null) return

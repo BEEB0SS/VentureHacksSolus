@@ -31,21 +31,27 @@ try:
     from .routes_core import router as core_router
     app.include_router(core_router)
     print("[ok] routes_core loaded")
-except ImportError:
+except ImportError as e:
+    if "routes_core" not in str(e):
+        raise
     print("[warn] routes_core not available — skipping")
 
 try:
     from .routes_livebench import router as livebench_router
     app.include_router(livebench_router)
     print("[ok] routes_livebench loaded")
-except ImportError:
+except ImportError as e:
+    if "routes_livebench" not in str(e):
+        raise
     print("[warn] routes_livebench not available — skipping")
 
 try:
     from .routes_agent import router as agent_router
     app.include_router(agent_router)
     print("[ok] routes_agent loaded")
-except ImportError:
+except ImportError as e:
+    if "routes_agent" not in str(e):
+        raise
     print("[warn] routes_agent not available — skipping")
 
 
@@ -60,16 +66,19 @@ async def health():
     try:
         from . import routes_core  # noqa: F401
         loaded.append("routes_core")
-    except ImportError:
-        pass
+    except ImportError as e:
+        if "routes_core" not in str(e):
+            raise
     try:
         from . import routes_livebench  # noqa: F401
         loaded.append("routes_livebench")
-    except ImportError:
-        pass
+    except ImportError as e:
+        if "routes_livebench" not in str(e):
+            raise
     try:
         from . import routes_agent  # noqa: F401
         loaded.append("routes_agent")
-    except ImportError:
-        pass
+    except ImportError as e:
+        if "routes_agent" not in str(e):
+            raise
     return {"status": "ok", "version": "0.1.0", "routers": loaded}

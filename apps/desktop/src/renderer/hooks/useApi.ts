@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import { API_BASE } from '../constants/api'
 
 interface UseApiState<T> {
   data: T | null
@@ -21,7 +22,7 @@ export function useApi<T = unknown>(): UseApiReturn<T> {
   const [state, setState] = useState<UseApiState<T>>(INITIAL_STATE)
 
   const call = useCallback(async (url: string, options?: RequestInit): Promise<T> => {
-    const resolvedUrl = url.startsWith('http') ? url : `http://localhost:8000${url}`
+    const resolvedUrl = url.startsWith('http') ? url : `${API_BASE}${url}`
 
     setState({ data: null, loading: true, error: null })
 
@@ -34,14 +35,16 @@ export function useApi<T = unknown>(): UseApiReturn<T> {
         },
       })
 
-      const data: T = await response.json()
-
       if (!response.ok) {
-        const errorMessage = (data as { message?: string })?.message ?? `HTTP error ${response.status}`
+        let errorMessage = `HTTP error ${response.status}`
+        try {
+          const errBody = await response.json()
+          errorMessage = errBody?.message ?? errorMessage
+        } catch { /* non-JSON body, keep default */ }
         setState({ data: null, loading: false, error: errorMessage })
         throw new Error(errorMessage)
       }
-
+      const data: T = await response.json()
       setState({ data, loading: false, error: null })
       return data
     } catch (err) {
