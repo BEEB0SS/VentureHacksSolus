@@ -62,7 +62,7 @@ Copied from the Elegoo repo and renamed (originals have spaces: `Bottom Plate.st
 
 **Package:** `mujoco-js` (npm) — the official Google DeepMind MuJoCo WASM bindings. This provides **physics only** — no rendering included.
 
-**Rendering:** Custom Three.js integration. We add `three` and `@react-three/fiber` + `@react-three/drei` as dependencies. The `MuJoCoViewer` component maps MuJoCo geom/body transforms to Three.js meshes and updates them each frame.
+**Rendering:** Custom Three.js integration. We add `three` and `@types/three` as dependencies. The `MuJoCoViewer` component maps MuJoCo body transforms to Three.js groups and updates them each frame using `data.xpos`/`data.xquat`.
 
 **Coordinate system:** MuJoCo uses Z-up; Three.js uses Y-up. The viewer applies a -90° rotation around X to the root scene group.
 

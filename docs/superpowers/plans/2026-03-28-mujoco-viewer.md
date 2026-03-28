@@ -447,7 +447,15 @@ git commit -m "feat: ModelSourceBar — model source selector with upload + Onsh
 **Files:**
 - Create: `apps/desktop/src/renderer/components/simulator/MuJoCoViewer.tsx`
 
-**Context:** The core 3D viewer. Initializes mujoco-js WASM, loads MJCF + STL assets into Emscripten VFS, creates Three.js scene from MuJoCo geom data, runs the physics/render loop. This is the most complex component. It exposes imperative methods via `useImperativeHandle` for the parent to control (play/pause/reset/set controls).
+**Context:** The core 3D viewer. Initializes mujoco-js WASM, loads MJCF + STL assets into Emscripten VFS via `FS.mount(MEMFS)`, creates Three.js scene grouped by body ID, runs the physics/render loop using `requestAnimationFrame`. Uses body-level `data.xpos`/`data.xquat` for transforms (proven approach from reference mujoco_wasm project). Uses a child `mujocoRoot` group for Z-up→Y-up conversion (not scene-level rotation, which breaks OrbitControls).
+
+**Key API corrections (from code review):**
+- Package: `mujoco-js` — import via dynamic `import('mujoco-js')`
+- Model: `mj.MjModel.loadFromXML(path)` (NOT `mj.Model.load`)
+- Data: `new mj.MjData(model)` (NOT `new mj.Simulation`)
+- VFS: Must call `mj.FS.mount(mj.MEMFS, { root: '.' }, '/working')` before writes
+- Three.js imports: `three/addons/controls/OrbitControls.js` (NOT `three/examples/jsm/`)
+- Transforms: Group meshes by body ID, use `data.xpos[bodyId*3+...]` and `data.xquat[bodyId*4+...]`
 
 **Depends on:** Task 1 (MJCF model + deps installed).
 
@@ -458,8 +466,8 @@ Create `apps/desktop/src/renderer/components/simulator/MuJoCoViewer.tsx`:
 ```tsx
 import { useEffect, useRef, useCallback, useState, forwardRef, useImperativeHandle } from 'react'
 import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { STLLoader } from 'three/addons/loaders/STLLoader.js'
 import { LoadingSpinner } from '../shared/LoadingSpinner'
 import { EmptyState } from '../shared/EmptyState'
 
@@ -497,15 +505,20 @@ interface MuJoCoViewerProps {
   onReady?: () => void
 }
 
+// ── Constants (module-level to avoid re-creation on render) ──
+
+const DEFAULT_MODEL_URL = '/models/elegoo-rover.xml'
+const DEFAULT_MESH_URLS = [
+  '/models/meshes/bottom_plate.stl',
+  '/models/meshes/top_plate.stl',
+  '/models/meshes/dead_plate.stl',
+]
+
 // ── Component ──
 
 const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
-  modelUrl = '/models/elegoo-rover.xml',
-  meshUrls = [
-    '/models/meshes/bottom_plate.stl',
-    '/models/meshes/top_plate.stl',
-    '/models/meshes/dead_plate.stl',
-  ],
+  modelUrl = DEFAULT_MODEL_URL,
+  meshUrls = DEFAULT_MESH_URLS,
   maxSteps = 200,
   playbackSpeed = 1.0,
   onTrajectoryUpdate,
@@ -525,7 +538,8 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
   const controlsRef = useRef<OrbitControls | null>(null)
-  const bodyMeshesRef = useRef<Map<number, THREE.Object3D>>(new Map())
+  const bodyGroupsRef = useRef<Map<number, THREE.Group>>(new Map())
+  const mujocoRootRef = useRef<THREE.Group | null>(null)
   const animFrameRef = useRef<number>(0)
   const playingRef = useRef(false)
   const trajectoryRef = useRef<TrajectoryPoint[]>([])
@@ -545,41 +559,43 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
     try {
       setStatus('loading')
 
-      // Dynamically import mujoco-js
-      const loadMujoco = (await import('mujoco-js')).default
+      // Dynamically import mujoco-js (official DeepMind WASM bindings)
+      const loadMujocoModule = await import('mujoco-js')
+      const loadMujoco = loadMujocoModule.default
       const mj = await loadMujoco()
       mujocoRef.current = mj
 
-      // Create VFS directories
-      try { mj.FS.mkdir('/models') } catch (e: any) { /* exists */ }
-      try { mj.FS.mkdir('/models/meshes') } catch (e: any) { /* exists */ }
+      // Mount Emscripten MEMFS and create VFS directories
+      try { mj.FS.mkdir('/working') } catch (e: any) { /* exists */ }
+      mj.FS.mount(mj.MEMFS, { root: '.' }, '/working')
+      try { mj.FS.mkdir('/working/meshes') } catch (e: any) { /* exists */ }
 
-      // Fetch and write MJCF XML
+      // Fetch and write MJCF XML to VFS
       const xmlRes = await fetch(modelUrl)
       if (!xmlRes.ok) throw new Error(`Failed to fetch model: ${xmlRes.statusText}`)
       const xmlText = await xmlRes.text()
-      mj.FS.writeFile('/models/elegoo-rover.xml', xmlText)
+      mj.FS.writeFile('/working/model.xml', xmlText)
 
-      // Fetch and write STL meshes
+      // Fetch and write STL meshes to VFS
       for (const meshUrl of meshUrls) {
         const meshRes = await fetch(meshUrl)
         if (!meshRes.ok) throw new Error(`Failed to fetch mesh: ${meshUrl}`)
         const meshBuf = new Uint8Array(await meshRes.arrayBuffer())
-        const meshPath = `/models/meshes/${meshUrl.split('/').pop()}`
-        mj.FS.writeFile(meshPath, meshBuf)
+        const meshName = meshUrl.split('/').pop() || 'mesh.stl'
+        mj.FS.writeFile(`/working/meshes/${meshName}`, meshBuf)
       }
 
-      // Load MuJoCo model
-      const model = mj.Model.load('/models/elegoo-rover.xml')
-      const data = new mj.Simulation(model)
+      // Load MuJoCo model (correct API: MjModel.loadFromXML + MjData)
+      const model = mj.MjModel.loadFromXML('/working/model.xml')
+      const data = new mj.MjData(model)
       modelRef.current = model
       dataRef.current = data
 
       // Initialize Three.js
       initThreeJs()
 
-      // Build scene from MuJoCo geoms
-      buildSceneFromModel(mj, model, data)
+      // Build scene from MuJoCo geoms (pass meshUrls explicitly to avoid stale closure)
+      buildSceneFromModel(mj, model, data, meshUrls)
 
       setStatus('ready')
       onReady?.()
@@ -602,9 +618,14 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
     // Scene
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x0a0a0f)
-    // Rotate scene to convert MuJoCo Z-up to Three.js Y-up
-    scene.rotation.x = -Math.PI / 2
     sceneRef.current = scene
+
+    // MuJoCo root group — rotated to convert Z-up to Y-up
+    // Using a child group (not scene) so OrbitControls work correctly
+    const mujocoRoot = new THREE.Group()
+    mujocoRoot.rotation.x = -Math.PI / 2
+    scene.add(mujocoRoot)
+    mujocoRootRef.current = mujocoRoot
 
     // Camera
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 100)
@@ -643,20 +664,37 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
       renderer.setSize(w, h)
     }
     window.addEventListener('resize', handleResize)
+    // Store for cleanup
+    ;(containerRef.current as any)._resizeHandler = handleResize
   }, [])
 
   // ── Build Three.js Scene from MuJoCo Model ──
+  // Groups meshes by BODY ID (not geom index). Each body gets a Three.js Group
+  // whose transform is updated from data.xpos/data.xquat each frame.
+  // Geoms are added as children of their parent body group with local offsets.
 
-  const buildSceneFromModel = useCallback((mj: any, model: any, data: any) => {
-    if (!sceneRef.current) return
-    const scene = sceneRef.current
+  const buildSceneFromModel = useCallback((mj: any, model: any, data: any, currentMeshUrls: string[]) => {
+    const root = mujocoRootRef.current
+    if (!root) return
 
-    // Clear old meshes
-    bodyMeshesRef.current.forEach(mesh => scene.remove(mesh))
-    bodyMeshesRef.current.clear()
+    // Clear old body groups
+    bodyGroupsRef.current.forEach(group => root.remove(group))
+    bodyGroupsRef.current.clear()
 
+    const nbody = model.nbody
     const ngeom = model.ngeom
 
+    // Create a Three.js Group for each body
+    for (let b = 0; b < nbody; b++) {
+      const group = new THREE.Group()
+      root.add(group)
+      bodyGroupsRef.current.set(b, group)
+    }
+
+    // Track mesh-type geoms for STL loading
+    const meshGeomIndices: number[] = []
+
+    // Create Three.js geometry for each geom, parented to its body group
     for (let i = 0; i < ngeom; i++) {
       const geomType = model.geom_type[i]
       const geomSize = [model.geom_size[i * 3], model.geom_size[i * 3 + 1], model.geom_size[i * 3 + 2]]
@@ -665,6 +703,9 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
 
       // Skip invisible geoms (rgba alpha = 0, used for collision only)
       if (geomRgba[3] === 0) continue
+
+      const bodyGroup = bodyGroupsRef.current.get(bodyId)
+      if (!bodyGroup) continue
 
       let geometry: THREE.BufferGeometry | null = null
       const material = new THREE.MeshPhongMaterial({
@@ -691,8 +732,8 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
         case 6: // box
           geometry = new THREE.BoxGeometry(geomSize[0] * 2, geomSize[1] * 2, geomSize[2] * 2)
           break
-        case 7: // mesh — handled by STL loader, skip for now
-          // Mesh geoms get their transform from the body, loaded separately
+        case 7: // mesh — tracked for STL loading below
+          meshGeomIndices.push(i)
           continue
         default:
           continue
@@ -700,53 +741,48 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
 
       if (geometry) {
         const mesh = new THREE.Mesh(geometry, material)
-        scene.add(mesh)
-        bodyMeshesRef.current.set(i, mesh)
+        // Geom local offset within body (from geom_pos in model)
+        const gp = model.geom_pos
+        mesh.position.set(gp[i * 3], gp[i * 3 + 1], gp[i * 3 + 2])
+        bodyGroup.add(mesh)
       }
     }
 
     // Load STL meshes for mesh-type geoms
     const stlLoader = new STLLoader()
-    const meshGeomIndices: number[] = []
-    for (let i = 0; i < ngeom; i++) {
-      if (model.geom_type[i] === 7) {
-        meshGeomIndices.push(i)
-      }
-    }
+    currentMeshUrls.forEach((url, idx) => {
+      if (idx >= meshGeomIndices.length) return
+      const geomIdx = meshGeomIndices[idx]
+      const bodyId = model.geom_bodyid[geomIdx]
+      const bodyGroup = bodyGroupsRef.current.get(bodyId)
+      if (!bodyGroup) return
 
-    // Load each mesh asset from the URLs we have
-    meshUrls.forEach((url, idx) => {
+      const geomRgba = [
+        model.geom_rgba[geomIdx * 4],
+        model.geom_rgba[geomIdx * 4 + 1],
+        model.geom_rgba[geomIdx * 4 + 2],
+        model.geom_rgba[geomIdx * 4 + 3],
+      ]
+
       stlLoader.load(url, (stlGeometry) => {
-        if (idx < meshGeomIndices.length) {
-          const geomIdx = meshGeomIndices[idx]
-          const geomRgba = [
-            model.geom_rgba[geomIdx * 4],
-            model.geom_rgba[geomIdx * 4 + 1],
-            model.geom_rgba[geomIdx * 4 + 2],
-            model.geom_rgba[geomIdx * 4 + 3],
-          ]
-          const material = new THREE.MeshPhongMaterial({
-            color: new THREE.Color(geomRgba[0], geomRgba[1], geomRgba[2]),
-          })
-
-          // Apply scale from MJCF (0.001 for mm→m conversion)
-          const scale = model.mesh_scale ? [
-            model.mesh_scale[idx * 3] || 1,
-            model.mesh_scale[idx * 3 + 1] || 1,
-            model.mesh_scale[idx * 3 + 2] || 1,
-          ] : [0.001, 0.001, 0.001]
-
-          stlGeometry.scale(scale[0], scale[1], scale[2])
-          const mesh = new THREE.Mesh(stlGeometry, material)
-          sceneRef.current?.add(mesh)
-          bodyMeshesRef.current.set(geomIdx, mesh)
-        }
+        const material = new THREE.MeshPhongMaterial({
+          color: new THREE.Color(geomRgba[0], geomRgba[1], geomRgba[2]),
+        })
+        // STL meshes are in mm, MJCF scale converts to meters
+        stlGeometry.scale(0.001, 0.001, 0.001)
+        const mesh = new THREE.Mesh(stlGeometry, material)
+        // Apply geom local position within body
+        const gp = model.geom_pos
+        mesh.position.set(gp[geomIdx * 3], gp[geomIdx * 3 + 1], gp[geomIdx * 3 + 2])
+        bodyGroup.add(mesh)
       })
     })
 
-    // Initial render
+    // Initial forward pass + render
+    mj.mj_forward(model, data)
+    syncVisuals()
     renderFrame()
-  }, [meshUrls])
+  }, [])
 
   // ── Render Frame ──
 
@@ -757,32 +793,31 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
   }, [])
 
   // ── Update Three.js Transforms from MuJoCo State ──
+  // Uses body-level data.xpos (3 per body) and data.xquat (4 per body, wxyz order)
+  // This is the proven approach from the reference mujoco_wasm project.
 
   const syncVisuals = useCallback(() => {
     const data = dataRef.current
-    const model = modelRef.current
-    if (!data || !model) return
+    if (!data) return
 
-    bodyMeshesRef.current.forEach((mesh, geomIdx) => {
-      // Read geom transform from data.geom_xpos and data.geom_xmat
-      const px = data.geom_xpos[geomIdx * 3 + 0]
-      const py = data.geom_xpos[geomIdx * 3 + 1]
-      const pz = data.geom_xpos[geomIdx * 3 + 2]
-      mesh.position.set(px, py, pz)
-
-      // Read 3x3 rotation matrix and convert to quaternion
-      const m = data.geom_xmat
-      const off = geomIdx * 9
-      const mat4 = new THREE.Matrix4()
-      mat4.set(
-        m[off + 0], m[off + 3], m[off + 6], 0,
-        m[off + 1], m[off + 4], m[off + 7], 0,
-        m[off + 2], m[off + 5], m[off + 8], 0,
-        0, 0, 0, 1,
+    bodyGroupsRef.current.forEach((group, bodyId) => {
+      // Body position from data.xpos (3 values per body)
+      group.position.set(
+        data.xpos[bodyId * 3 + 0],
+        data.xpos[bodyId * 3 + 1],
+        data.xpos[bodyId * 3 + 2],
       )
-      const quat = new THREE.Quaternion()
-      quat.setFromRotationMatrix(mat4)
-      mesh.quaternion.copy(quat)
+
+      // Body orientation from data.xquat (4 values per body, MuJoCo order: w,x,y,z)
+      // Three.js Quaternion constructor: (x, y, z, w)
+      group.quaternion.set(
+        data.xquat[bodyId * 4 + 1], // x
+        data.xquat[bodyId * 4 + 2], // y
+        data.xquat[bodyId * 4 + 3], // z
+        data.xquat[bodyId * 4 + 0], // w
+      )
+
+      group.updateMatrixWorld()
     })
   }, [])
 
@@ -860,6 +895,9 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
     initMujoco()
     return () => {
       cancelAnimationFrame(animFrameRef.current)
+      // Clean up resize listener
+      const handler = (containerRef.current as any)?._resizeHandler
+      if (handler) window.removeEventListener('resize', handler)
       rendererRef.current?.dispose()
       dataRef.current?.delete?.()
       modelRef.current?.delete?.()
@@ -910,22 +948,26 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
       dataRef.current?.delete?.()
       modelRef.current?.delete?.()
 
-      // Write new files to VFS
-      mj.FS.writeFile('/models/custom-model.xml', xml)
+      // Write new XML to VFS
+      mj.FS.writeFile('/working/model.xml', xml)
+
+      // Write mesh files if provided
+      const uploadedMeshUrls: string[] = []
       if (meshFiles) {
-        try { mj.FS.mkdir('/models/meshes') } catch (e: any) { /* exists */ }
         meshFiles.forEach((buf, name) => {
-          mj.FS.writeFile(`/models/meshes/${name}`, new Uint8Array(buf))
+          mj.FS.writeFile(`/working/meshes/${name}`, new Uint8Array(buf))
+          uploadedMeshUrls.push(`/working/meshes/${name}`)
         })
       }
 
-      const model = mj.Model.load('/models/custom-model.xml')
-      const data = new mj.Simulation(model)
+      // Load with correct API
+      const model = mj.MjModel.loadFromXML('/working/model.xml')
+      const data = new mj.MjData(model)
       modelRef.current = model
       dataRef.current = data
 
-      // Rebuild scene
-      buildSceneFromModel(mj, model, data)
+      // Rebuild scene (pass uploaded mesh URLs to avoid stale closure)
+      buildSceneFromModel(mj, model, data, uploadedMeshUrls)
       stepCountRef.current = 0
       trajectoryRef.current = []
     },
@@ -993,7 +1035,7 @@ Replace the entire content of `apps/desktop/src/renderer/components/simulator/Si
 
 ```tsx
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Play, Pause, RotateCcw, AlertTriangle, ArrowRight, SkipForward } from 'lucide-react'
+import { Play, Pause, RotateCcw, AlertTriangle, ArrowRight } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { useProjectStore } from '../../stores/projectStore'
 import { API_BASE } from '../../constants/api'
@@ -1055,6 +1097,7 @@ export default function SimulatorTab() {
   const [modelSource, setModelSource] = useState<'default' | 'upload' | 'onshape'>('default')
   const [modelLoading, setModelLoading] = useState(false)
   const [comparing, setComparing] = useState(false)
+  const [backendLoading, setBackendLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [stepCount, setStepCount] = useState(0)
 
@@ -1072,13 +1115,14 @@ export default function SimulatorTab() {
   const handlePlay = useCallback(() => {
     if (!wasmReady) {
       // Fallback to backend
-      runBackendSimulation()
+      setBackendLoading(true)
+      runBackendSimulation().finally(() => setBackendLoading(false))
       return
     }
     viewerRef.current?.setControls(leftSpeed, rightSpeed)
     viewerRef.current?.play()
     setPlaying(true)
-  }, [wasmReady, leftSpeed, rightSpeed])
+  }, [wasmReady, leftSpeed, rightSpeed, runBackendSimulation])
 
   const handlePause = useCallback(() => {
     viewerRef.current?.pause()
@@ -1228,8 +1272,8 @@ export default function SimulatorTab() {
               <Pause size={14} /> Pause
             </button>
           ) : (
-            <button onClick={handlePlay} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-solus-accent rounded-md hover:bg-solus-accent-bright transition-colors cursor-pointer">
-              <Play size={14} /> Run Simulation
+            <button onClick={handlePlay} disabled={backendLoading} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-solus-accent rounded-md hover:bg-solus-accent-bright transition-colors disabled:opacity-50 cursor-pointer">
+              {backendLoading ? <LoadingSpinner size="sm" /> : <Play size={14} />} Run Simulation
             </button>
           )}
         </div>
