@@ -4,39 +4,34 @@
   <option timestep="0.01" gravity="0 0 -9.81" integrator="implicit"/>
 
   <asset>
-    <!-- Full V3 car assembly mesh (visual only) -->
-    <mesh name="car_body" file="elegoo_v3_full.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="car_body" file="elegoo_v3_car.stl" scale="0.001 0.001 0.001"/>
 
-    <!-- Materials -->
     <material name="car_mat" rgba="0.15 0.15 0.2 1"/>
     <material name="wheel_mat" rgba="0.1 0.1 0.1 1"/>
-
-    <!-- Ground -->
+    <material name="accent_mat" rgba="0.2 0.4 0.8 1"/>
     <texture name="grid" type="2d" builtin="checker" rgb1="0.3 0.3 0.35" rgb2="0.25 0.25 0.3" width="512" height="512"/>
     <material name="grid_mat" texture="grid" texrepeat="10 10" texuniform="true"/>
   </asset>
 
   <worldbody>
-    <!-- Ground plane -->
     <geom name="ground" type="plane" size="5 5 0.1" material="grid_mat"/>
     <light pos="0 0 3" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
     <light pos="2 2 3" dir="-0.5 -0.5 -1" diffuse="0.4 0.4 0.4"/>
 
-    <!-- Rover body -->
-    <body name="rover" pos="0 0 0.05" euler="0 0 0">
+    <body name="rover" pos="0 0 0.06">
       <joint name="rover_free" type="free"/>
-      <inertial pos="0 0 0.02" mass="0.35" diaginertia="0.001 0.002 0.002"/>
+      <inertial pos="0 0 0.01" mass="0.35" diaginertia="0.001 0.002 0.002"/>
 
-      <!-- Collision box for chassis -->
-      <geom name="chassis_collision" type="box" size="0.125 0.075 0.03" pos="0 0 0.02"
+      <!-- Collision box -->
+      <geom name="chassis_collision" type="box" size="0.12 0.075 0.025" pos="0 0 0.015"
             rgba="0 0 0 0" contype="1" conaffinity="1"/>
 
-      <!-- Full car visual mesh (no collision — visual only) -->
+      <!-- V3 car visual mesh -->
       <geom name="car_visual" type="mesh" mesh="car_body" material="car_mat"
-            contype="0" conaffinity="0" pos="0 0 0"/>
+            contype="0" conaffinity="0"/>
 
       <!-- Front-left wheel -->
-      <body name="wheel_fl" pos="0.09 0.085 0">
+      <body name="wheel_fl" pos="0.075 0.085 0">
         <joint name="joint_fl" type="hinge" axis="0 1 0" damping="0.01"/>
         <geom name="geom_fl" type="cylinder" size="0.0325 0.0125"
               euler="1.5708 0 0" material="wheel_mat"
@@ -44,7 +39,7 @@
       </body>
 
       <!-- Front-right wheel -->
-      <body name="wheel_fr" pos="0.09 -0.085 0">
+      <body name="wheel_fr" pos="0.075 -0.085 0">
         <joint name="joint_fr" type="hinge" axis="0 1 0" damping="0.01"/>
         <geom name="geom_fr" type="cylinder" size="0.0325 0.0125"
               euler="1.5708 0 0" material="wheel_mat"
@@ -52,7 +47,7 @@
       </body>
 
       <!-- Rear-left wheel -->
-      <body name="wheel_rl" pos="-0.09 0.085 0">
+      <body name="wheel_rl" pos="-0.075 0.085 0">
         <joint name="joint_rl" type="hinge" axis="0 1 0" damping="0.01"/>
         <geom name="geom_rl" type="cylinder" size="0.0325 0.0125"
               euler="1.5708 0 0" material="wheel_mat"
@@ -60,7 +55,7 @@
       </body>
 
       <!-- Rear-right wheel -->
-      <body name="wheel_rr" pos="-0.09 -0.085 0">
+      <body name="wheel_rr" pos="-0.075 -0.085 0">
         <joint name="joint_rr" type="hinge" axis="0 1 0" damping="0.01"/>
         <geom name="geom_rr" type="cylinder" size="0.0325 0.0125"
               euler="1.5708 0 0" material="wheel_mat"
