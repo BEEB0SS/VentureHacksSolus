@@ -160,9 +160,11 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
   // ── Build car model from MuJoCo MJCF (static geometry) ──
 
   const buildCarModel = useCallback(async (scene: THREE.Scene) => {
-    // The car group lives in Three.js Y-up space.
-    // We position and rotate this group based on trajectory (x, y, theta).
+    // Car group with Z-up → Y-up rotation (same approach as the old working viewer).
+    // The car group is rotated -90° around X so MuJoCo Z-up becomes Three.js Y-up.
+    // Geoms are placed in raw MuJoCo coordinates inside this group.
     const carGroup = new THREE.Group()
+    carGroup.rotation.x = -Math.PI / 2
     scene.add(carGroup)
     carGroupRef.current = carGroup
 
@@ -189,14 +191,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
         throw new Error('Cannot find MuJoCo model loader')
       }
 
-      // Run mj_forward to get initial geom positions
       mj.mj_forward(model, data)
-
-      // Build Three.js meshes from MuJoCo geoms
-      // All positions are relative to car group (subtract chassis origin)
-      const chassisX = data.geom_xpos[1 * 3 + 0] || 0  // geom 1 = chassis_lower
-      const chassisY = data.geom_xpos[1 * 3 + 1] || 0
-      const chassisZ = data.geom_xpos[1 * 3 + 2] || 0
 
       const wheels: THREE.Mesh[] = []
 
@@ -206,7 +201,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
         const geomRgba = [model.geom_rgba[i * 4], model.geom_rgba[i * 4 + 1], model.geom_rgba[i * 4 + 2], model.geom_rgba[i * 4 + 3]]
 
         if (geomRgba[3] === 0) continue
-        if (geomType === 0) continue  // skip ground plane (we made our own)
+        if (geomType === 0) continue  // skip ground plane
 
         let geometry: THREE.BufferGeometry | null = null
         const material = new THREE.MeshPhongMaterial({
@@ -224,26 +219,23 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
         }
 
         if (!geometry) continue
-
         const mesh = new THREE.Mesh(geometry, material)
 
-        // Position relative to chassis, converting MuJoCo Z-up to Three.js Y-up
-        const gx = data.geom_xpos[i * 3 + 0] - chassisX
-        const gy = data.geom_xpos[i * 3 + 1] - chassisY
-        const gz = data.geom_xpos[i * 3 + 2] - chassisZ
-        mesh.position.set(gx, gz, -gy)  // Z-up → Y-up: (x, z, -y)
+        // Place in raw MuJoCo coordinates (the parent group handles Z-up → Y-up)
+        mesh.position.set(
+          data.geom_xpos[i * 3 + 0],
+          data.geom_xpos[i * 3 + 1],
+          data.geom_xpos[i * 3 + 2],
+        )
 
-        // Orientation from geom_xmat
+        // Orientation from geom_xmat (raw MuJoCo rotation matrix)
         const m = data.geom_xmat
         const off = i * 9
         const mat4 = new THREE.Matrix4()
-        // Convert MuJoCo Z-up rotation matrix to Three.js Y-up
-        // MuJoCo: [Xx,Xy,Xz, Yx,Yy,Yz, Zx,Zy,Zz] (row-major, Z-up)
-        // Three.js Y-up: swap Y↔Z rows and columns
         mat4.set(
-          m[off + 0], m[off + 2], -m[off + 1], 0,
-          m[off + 6], m[off + 8], -m[off + 7], 0,
-          -m[off + 3], -m[off + 5], m[off + 4], 0,
+          m[off + 0], m[off + 1], m[off + 2], 0,
+          m[off + 3], m[off + 4], m[off + 5], 0,
+          m[off + 6], m[off + 7], m[off + 8], 0,
           0, 0, 0, 1,
         )
         const quat = new THREE.Quaternion()
@@ -259,9 +251,6 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
 
         carGroup.add(mesh)
 
-        // Track wheel geoms by name pattern (they're cylinders with "wheel" in geom name)
-        // Wheel geom indices in the MJCF: the tire cylinders are the ones with friction
-        // We identify wheels as cylinders with size[0] > 0.02 (tire-sized, not motor boxes)
         if (geomType === 5 && geomSize[0] > 0.02) {
           wheels.push(mesh)
         }
@@ -269,10 +258,6 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
 
       wheelMeshesRef.current = wheels
 
-      // Lift car to ground level
-      carGroup.position.y = chassisZ
-
-      // Clean up MuJoCo (we only needed it for geometry)
       data.delete?.()
       model.delete?.()
 
@@ -344,13 +329,16 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
         const idx = Math.min(Math.floor(currentFrameRef.current), traj.length - 1)
         const point = traj[idx]
 
-        // Move car: trajectory is in MuJoCo Z-up coords (x forward, y left)
-        // Three.js Y-up: x stays, y=height, z=-y(mujoco)
+        // Move car in MuJoCo Z-up coords (parent group handles Z-up → Y-up)
+        // Trajectory x/y are in the MuJoCo ground plane (X forward, Y left)
+        // We set the group's X and Y position; the -PI/2 rotation on the group
+        // converts this to Three.js space automatically.
+        // But rotation.x on the group is already set, so we translate in MuJoCo space:
         car.position.x = point.x
-        car.position.z = -point.y
+        car.position.y = point.y
 
-        // Rotate car around Y axis (yaw = theta around Z in MuJoCo = Y in Three.js)
-        car.rotation.y = -point.theta
+        // Yaw rotation around MuJoCo Z axis
+        car.rotation.z = point.theta
 
         // Spin wheels based on forward velocity
         const wheelRotationDelta = (point.v_linear / 0.0325) * (deltaMs / 1000)
@@ -408,12 +396,12 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
       trajectoryDataRef.current = trajectory
       currentFrameRef.current = 0
       playingRef.current = true
-      // Reset car to start
+      // Reset car to start position (MuJoCo Z-up coords)
       const car = carGroupRef.current
       if (car && trajectory.length > 0) {
         car.position.x = trajectory[0].x
-        car.position.z = -trajectory[0].y
-        car.rotation.y = -trajectory[0].theta
+        car.position.y = trajectory[0].y
+        car.rotation.z = trajectory[0].theta
       }
     },
     pause: () => { playingRef.current = false },
@@ -423,8 +411,9 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
       currentFrameRef.current = 0
       const car = carGroupRef.current
       if (car) {
-        car.position.set(0, car.position.y, 0)
-        car.rotation.y = 0
+        car.position.x = 0
+        car.position.y = 0
+        car.rotation.z = 0
       }
     },
     isPlaying: () => playingRef.current,
