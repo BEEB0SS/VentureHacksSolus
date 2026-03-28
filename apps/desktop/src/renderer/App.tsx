@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Boxes, Network, Search, Activity, Cpu } from 'lucide-react'
+import { useProjectStore } from './stores/projectStore'
+import { LoadingSpinner } from './components/shared/LoadingSpinner'
 
 // Placeholders — Claude Code agents replace these
 const WorkspaceTab = () => (
@@ -31,6 +33,20 @@ export default function App() {
   const ActiveComponent =
     TABS.find((t) => t.id === activeTab)?.component || WorkspaceTab
 
+  const { projects, currentProjectId, fetchProjects, setCurrentProject, loading, error, clearError } = useProjectStore()
+
+  useEffect(() => {
+    fetchProjects()
+  }, [fetchProjects])
+
+  useEffect(() => {
+    if (projects.length > 0 && !currentProjectId) {
+      setCurrentProject(projects[0].id)
+    }
+  }, [projects, currentProjectId, setCurrentProject])
+
+  const currentProject = projects.find((p) => p.id === currentProjectId)
+
   return (
     <div className="h-screen flex flex-col bg-solus-bg font-sans">
       {/* Title bar — draggable on macOS */}
@@ -38,7 +54,24 @@ export default function App() {
         <span className="text-xs font-mono text-solus-accent font-semibold tracking-wider">
           SOLUS
         </span>
+        <div className="ml-auto flex items-center gap-2 [-webkit-app-region:no-drag]">
+          {loading.fetchProjects && <LoadingSpinner size="sm" />}
+          {currentProject && (
+            <span className="text-xs text-solus-text-dim font-mono">
+              {currentProject.name}
+            </span>
+          )}
+        </div>
       </div>
+
+      {error && (
+        <div className="bg-solus-error/10 border-b border-solus-error/30 px-4 py-1.5 flex items-center justify-between">
+          <span className="text-xs text-solus-error">{error}</span>
+          <button onClick={clearError} className="text-xs text-solus-error hover:underline cursor-pointer">
+            dismiss
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
