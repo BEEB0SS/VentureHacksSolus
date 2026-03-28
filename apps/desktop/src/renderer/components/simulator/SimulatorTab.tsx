@@ -331,7 +331,15 @@ export default function SimulatorTab() {
 
           {/* PID Gains — read-only, shows current policy */}
           <div className="space-y-3">
-            <label className="text-[13px] text-solus-text-dim block">PID Gains</label>
+            <div className="flex items-center justify-between">
+              <label className="text-[13px] text-solus-text-dim">PID Gains</label>
+              {(!optimResult || !viewingOptimized) && (
+                <span className="text-[10px] text-red-400/70 uppercase tracking-wider">Untuned</span>
+              )}
+              {optimResult && viewingOptimized && (
+                <span className="text-[10px] text-emerald-400/70 uppercase tracking-wider">Optimized</span>
+              )}
+            </div>
             {['kp', 'ki', 'kd'].map((key) => {
               const value = optimResult && viewingOptimized
                 ? optimResult.best_gains[key as keyof typeof optimResult.best_gains]
@@ -339,7 +347,7 @@ export default function SimulatorTab() {
               return (
                 <div key={key} className="flex items-center justify-between">
                   <span className="text-[12px] font-mono text-solus-text-muted uppercase">{key}</span>
-                  <span className={`text-[14px] font-mono ${optimResult && viewingOptimized ? 'text-emerald-400' : 'text-solus-text-dim'}`}>
+                  <span className={`text-[14px] font-mono ${optimResult && viewingOptimized ? 'text-emerald-400' : 'text-red-400/70'}`}>
                     {value.toFixed(3)}
                   </span>
                 </div>
