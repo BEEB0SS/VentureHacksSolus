@@ -1,0 +1,8 @@
+[project]
+name = "solus"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["fastapi", "uvicorn"]
+
+[tool.setuptools.packages.find]
+include = ["apps.*", "packages.*"]
