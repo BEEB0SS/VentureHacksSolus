@@ -230,56 +230,65 @@ export default function SimulatorTab() {
     return <EmptyState title="No project selected" description="Select a project from the Workspace tab." />
   }
 
-  // Shared styles
   const inputCls = "w-full bg-solus-bg border border-solus-border/50 rounded-lg px-3 py-2 text-[13px] font-mono text-solus-text focus:outline-none focus:border-solus-accent/50 transition-colors"
-  const btnBase = "flex items-center gap-2 px-5 py-2.5 text-[13px] font-medium rounded-lg transition-colors cursor-pointer"
-  const btnGhost = `${btnBase} text-solus-text-dim bg-solus-elevated border border-solus-border/40 hover:text-solus-text hover:border-solus-border`
-  const btnPrimary = `${btnBase} text-white bg-solus-accent hover:bg-solus-accent-bright disabled:opacity-40`
-  const btnSuccess = `${btnBase} text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40`
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-8 py-4 border-b border-solus-border/40 shrink-0">
+      <div className="flex items-center justify-between px-8 py-5 border-b border-solus-border/40 shrink-0">
         <span className="text-[14px] font-medium text-solus-text tracking-wide">Simulator</span>
-        <div className="flex items-center gap-3">
-          <button onClick={handleReset} className={btnGhost}>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handleReset}
+            className="flex items-center gap-2.5 px-6 py-3 text-[13px] font-medium rounded-lg bg-[#16161d] border border-[#2a2a3a] text-[#94a3b8] hover:text-[#e2e8f0] hover:border-[#3a3a4a] transition-colors cursor-pointer"
+          >
             <RotateCcw size={14} /> Reset
           </button>
-          <div className="w-px h-6 bg-solus-border/30" />
+          <div className="w-px h-8 bg-[#1e1e2a]" />
           {playing ? (
-            <button onClick={handlePause} className={`${btnBase} text-white bg-amber-600 hover:bg-amber-500`}>
+            <button
+              onClick={handlePause}
+              className="flex items-center gap-2.5 px-6 py-3 text-[13px] font-medium rounded-lg text-white bg-amber-600 hover:bg-amber-500 transition-colors cursor-pointer"
+            >
               <Pause size={14} /> Pause
             </button>
           ) : (
-            <button onClick={handlePlay} disabled={backendLoading} className={btnPrimary}>
+            <button
+              onClick={handlePlay}
+              disabled={backendLoading}
+              className="flex items-center gap-2.5 px-6 py-3 text-[13px] font-medium rounded-lg text-white bg-[#6366f1] hover:bg-[#818cf8] disabled:opacity-40 transition-colors cursor-pointer"
+            >
               {backendLoading ? <LoadingSpinner size="sm" /> : <Play size={14} />}
               {optimResult ? (viewingOptimized ? 'Simulate After' : 'Simulate Before') : 'Simulate'}
             </button>
           )}
           <button
             onClick={() => setShowOptimizeInput(prev => !prev)}
-            className={showOptimizeInput ? btnSuccess : btnGhost}
+            className={`flex items-center gap-2.5 px-6 py-3 text-[13px] font-medium rounded-lg transition-colors cursor-pointer ${
+              showOptimizeInput
+                ? 'text-white bg-emerald-600 hover:bg-emerald-500'
+                : 'bg-[#16161d] border border-[#2a2a3a] text-[#94a3b8] hover:text-[#e2e8f0] hover:border-[#3a3a4a]'
+            }`}
           >
             Optimize
           </button>
           {optimResult && (
             <>
-              <div className="w-px h-6 bg-solus-border/30" />
-              <div className="flex items-center rounded-lg overflow-hidden border border-solus-border/30">
+              <div className="w-px h-8 bg-[#1e1e2a]" />
+              <div className="flex items-center rounded-lg overflow-hidden border border-[#2a2a3a]">
                 <button
                   onClick={() => { setViewingOptimized(false); setTrajectory(optimResult.bad_trajectory) }}
-                  className={`px-6 py-2.5 text-[13px] font-medium transition-colors cursor-pointer ${
-                    !viewingOptimized ? 'bg-red-500/15 text-red-400' : 'text-solus-text-muted hover:text-solus-text-dim'
+                  className={`px-6 py-3 text-[13px] font-medium transition-colors cursor-pointer ${
+                    !viewingOptimized ? 'bg-red-500/15 text-red-400' : 'text-[#4e4e62] hover:text-[#8b8b9e]'
                   }`}
                 >
                   Before
                 </button>
-                <div className="w-px h-5 bg-solus-border/30" />
+                <div className="w-px h-6 bg-[#2a2a3a]" />
                 <button
                   onClick={() => { setViewingOptimized(true); setTrajectory(optimResult.best_trajectory) }}
-                  className={`px-6 py-2.5 text-[13px] font-medium transition-colors cursor-pointer ${
-                    viewingOptimized ? 'bg-emerald-500/15 text-emerald-400' : 'text-solus-text-muted hover:text-solus-text-dim'
+                  className={`px-6 py-3 text-[13px] font-medium transition-colors cursor-pointer ${
+                    viewingOptimized ? 'bg-emerald-500/15 text-emerald-400' : 'text-[#4e4e62] hover:text-[#8b8b9e]'
                   }`}
                 >
                   After
@@ -309,7 +318,7 @@ export default function SimulatorTab() {
               placeholder=""
               className={`${inputCls} flex-1`}
             />
-            <button onClick={runOptimization} disabled={optimizing} className={btnSuccess}>
+            <button onClick={runOptimization} disabled={optimizing} className="flex items-center gap-2.5 px-6 py-3 text-[13px] font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 transition-colors cursor-pointer">
               {optimizing ? <LoadingSpinner size="sm" /> : <Play size={14} />}
               {optimizing ? 'Running...' : 'Optimize'}
             </button>
@@ -440,7 +449,7 @@ export default function SimulatorTab() {
                 )}
 
                 <div className="pt-2">
-                  <button onClick={runComparison} disabled={comparing} className={btnGhost}>
+                  <button onClick={runComparison} disabled={comparing} className="flex items-center gap-2.5 px-6 py-3 text-[13px] font-medium rounded-lg bg-[#16161d] border border-[#2a2a3a] text-[#94a3b8] hover:text-[#e2e8f0] hover:border-[#3a3a4a] disabled:opacity-40 transition-colors cursor-pointer">
                     {comparing ? <LoadingSpinner size="sm" /> : <ArrowRight size={14} />}
                     Compare Sim vs Runtime
                   </button>
