@@ -289,7 +289,8 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
           break
         case 5: // cylinder
           geometry = new THREE.CylinderGeometry(geomSize[0], geomSize[0], geomSize[1] * 2, 16)
-          geometry.rotateX(Math.PI / 2) // MuJoCo cylinder axis is Z, Three.js is Y
+          // Don't rotate here — MuJoCo geom euler handles orientation,
+          // and syncVisuals applies the full body+geom transform
           break
         case 6: // box
           geometry = new THREE.BoxGeometry(geomSize[0] * 2, geomSize[1] * 2, geomSize[2] * 2)
@@ -303,9 +304,19 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerHandle, MuJoCoViewerProps>(({
 
       if (geometry) {
         const mesh = new THREE.Mesh(geometry, material)
-        // Geom local offset within body (from geom_pos in model)
+        // Geom local position within body
         const gp = model.geom_pos
         mesh.position.set(gp[i * 3], gp[i * 3 + 1], gp[i * 3 + 2])
+        // Geom local orientation within body (quaternion: w,x,y,z in MuJoCo)
+        const gq = model.geom_quat
+        if (gq) {
+          mesh.quaternion.set(
+            gq[i * 4 + 1], // x
+            gq[i * 4 + 2], // y
+            gq[i * 4 + 3], // z
+            gq[i * 4 + 0], // w
+          )
+        }
         bodyGroup.add(mesh)
       }
     }
