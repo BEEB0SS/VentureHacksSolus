@@ -60,4 +60,6 @@ class TestMemoryStoreBasicStorage:
         store.store_issue_fix(project_id, "Bug B", "desc B", "fix B", ["step"])
         store.store_document_chunk(project_id, "Some datasheet text", "doc.pdf", 0)
         results = store.find_similar("bug", project_id=project_id)
-        assert len(results) >= 1
+        assert len(results) >= 2
+        for r in results:
+            assert "id" in r and "similarity" in r and r["similarity"] > 0

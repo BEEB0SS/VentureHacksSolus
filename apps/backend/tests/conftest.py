@@ -60,10 +60,12 @@ def project_id(fresh_db):
         from apps.backend.src.database import get_connection
         pid = _uid()
         conn = get_connection()
-        conn.execute(
-            "INSERT INTO projects (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-            (pid, "TestBot", "A test robot", _now(), _now()),
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(
+                "INSERT INTO projects (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (pid, "TestBot", "A test robot", _now(), _now()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
         return pid
