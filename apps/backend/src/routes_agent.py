@@ -216,3 +216,79 @@ async def import_from_onshape(project_id: str, req: OnshapeImportReq):
         "model_url": "/models/elegoo-rover.xml",
         "message": "Model imported successfully (demo mode)",
     }
+
+
+# ── AI Simulation Tuning ──
+
+class AITuneReq(BaseModel):
+    goal: str
+    current_mjcf: str
+    current_params: dict[str, Any] = Field(default_factory=dict)
+    n_trials: int = 100
+    n_steps: int = 200
+
+class ApplyTuneReq(BaseModel):
+    new_mjcf: Optional[str] = None
+    new_params: dict[str, Any] = Field(default_factory=dict)
+    changes_summary: list[str] = Field(default_factory=list)
+
+
+@router.post("/projects/{project_id}/simulator/ai-tune")
+async def ai_tune_simulation(project_id: str, req: AITuneReq):
+    """AI-driven simulation tuning: Gemini designs search, backend executes."""
+    from apps.backend.src.simulator.ai_tuner import ai_tune
+
+    # Get context model graph for Gemini prompt
+    graph = {"entities": [], "relations": []}
+    if CONTEXT_ENGINE_AVAILABLE:
+        try:
+            engine = ContextEngine(project_id)
+            graph = engine.get_full_graph()
+        except Exception:
+            pass
+
+    result = await ai_tune(
+        goal=req.goal,
+        current_mjcf=req.current_mjcf,
+        current_params=req.current_params,
+        graph=graph,
+        n_trials=req.n_trials,
+        n_steps=req.n_steps,
+    )
+    return result
+
+
+@router.post("/projects/{project_id}/simulator/apply-tune")
+async def apply_tune_result(project_id: str, req: ApplyTuneReq):
+    """Record AI tuning changes in the context model graph."""
+    changes_logged = 0
+
+    if CONTEXT_ENGINE_AVAILABLE and req.changes_summary:
+        try:
+            engine = ContextEngine(project_id)
+            for change_desc in req.changes_summary:
+                from packages.shared_types.src.models import ChangeEvent, ChangeType, _uid, _now
+                from apps.backend.src.database import get_connection
+                import json as _json
+
+                event = ChangeEvent(
+                    project_id=project_id,
+                    change_type=ChangeType.MODIFIED,
+                    entity_name="simulation_model",
+                    description=f"AI tuner: {change_desc}",
+                )
+                conn = get_connection()
+                conn.execute(
+                    """INSERT INTO change_events (id, project_id, source_connection_id, change_type, entity_id, entity_name, description, diff_data, impacted_entity_ids, created_at, acknowledged)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (event.id, event.project_id, "", event.change_type.value,
+                     "", event.entity_name, event.description,
+                     _json.dumps({}), _json.dumps([]), event.created_at, 0),
+                )
+                conn.commit()
+                conn.close()
+                changes_logged += 1
+        except Exception as e:
+            print(f"[apply-tune] Failed to log changes: {e}")
+
+    return {"changes_logged": changes_logged, "status": "applied"}
