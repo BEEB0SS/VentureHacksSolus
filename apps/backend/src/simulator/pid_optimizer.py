@@ -110,7 +110,7 @@ def optimize_pid(n_trials: int = 100, n_steps: int = 200, dt: float = 0.01,
         {best_gains, best_score, best_trajectory, bad_gains, bad_score, bad_trajectory, trials_run}
     """
     if bounds is None:
-        bounds = {"kp": (0.5, 5.0), "ki": (0.0, 1.0), "kd": (0.0, 0.5)}
+        bounds = {"kp": (2.0, 15.0), "ki": (0.0, 2.0), "kd": (0.0, 1.0)}
 
     # First: generate the "bad" baseline (zero gains = no correction)
     bad_gains = {"kp": 0.0, "ki": 0.0, "kd": 0.0}

@@ -177,7 +177,7 @@ export default function SimulatorTab() {
       const res = await fetch(`${API_BASE}/api/projects/${currentProjectId}/simulator/optimize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ n_trials: 100, n_steps: 200 }),
+        body: JSON.stringify({ n_trials: 300, n_steps: 500 }),
       })
       if (!res.ok) throw new Error(`Optimization failed: ${res.statusText}`)
       const result = await res.json()
