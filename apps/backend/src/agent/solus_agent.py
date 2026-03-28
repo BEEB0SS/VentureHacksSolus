@@ -11,8 +11,9 @@ import json
 from typing import Optional
 
 from packages.shared_types.src.models import (
-    AgentQuery, AgentResponse, _uid, _now,
+    AgentQuery, AgentResponse, PartCandidate, _uid, _now,
 )
+from apps.backend.src.connectors.component_search import search_components, ComponentSearchError
 
 # Gemini import — optional, fails gracefully
 try:
@@ -162,27 +163,206 @@ Be systematic: identify the component, trace the signal path, suggest root cause
             structured_data={"memory_hits": context.get("memory_hits", [])},
             sources=["context_model", "memory", "fallback"], confidence=0.3)
 
+    async def _extract_search_params(self, context_str: str, user_query: str) -> str:
+        """Phase 1: Use Gemini to extract optimal DigiKey search keywords from project context."""
+        system_prompt = (
+            "You are a component search assistant. Given the project context and the user's request, "
+            "extract the best search keywords for an electronic component search.\n\n"
+            "Analyze the project's existing components (voltage levels, communication protocols, "
+            "mechanical constraints, current requirements) and the user's request to determine "
+            "what to search for.\n\n"
+            'Output ONLY valid JSON:\n'
+            '{"keywords": "the search query string for the component search", '
+            '"reasoning": "one sentence explaining why these keywords"}'
+        )
+        user_prompt = f"Project Context:\n{context_str}\n\nUser Request: {user_query}"
+        response = await self._call_gemini(system_prompt, user_prompt)
+        if response:
+            try:
+                # Strip markdown code fences if present
+                text = response.strip()
+                if text.startswith("```"):
+                    text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+                    text = text.rsplit("```", 1)[0]
+                data = json.loads(text)
+                return data.get("keywords", user_query)
+            except (json.JSONDecodeError, KeyError):
+                pass
+        return user_query
+
+    async def _rank_candidates(self, context_str: str, user_query: str, products: list[dict]) -> dict:
+        """Phase 2: Use Gemini to rank DigiKey results against project constraints."""
+        system_prompt = (
+            "You are a component compatibility analyst for a robotics project.\n"
+            "Given the project context and component search results, evaluate each product "
+            "for compatibility with the existing system.\n\n"
+            "For each product, provide:\n"
+            "- relevance_score (0.0-1.0)\n"
+            "- compatibility_notes (1-2 sentences on why it fits or doesn't)\n\n"
+            'Output ONLY valid JSON:\n'
+            '{"ranked_products": [{"index": 0, "relevance_score": 0.95, "compatibility_notes": "..."}], '
+            '"summary": "Overall recommendation in 2-3 sentences"}'
+        )
+        products_summary = json.dumps(
+            [
+                {
+                    "index": i,
+                    "manufacturer_part_number": p.get("manufacturer_part_number", ""),
+                    "manufacturer": p.get("manufacturer", ""),
+                    "description": p.get("description", ""),
+                    "detailed_description": p.get("detailed_description", ""),
+                    "unit_price": p.get("unit_price", 0),
+                    "quantity_available": p.get("quantity_available", 0),
+                    "category": p.get("category", ""),
+                    "parameters": dict(list(p.get("parameters", {}).items())[:10]),
+                }
+                for i, p in enumerate(products)
+            ],
+            indent=2,
+        )
+        user_prompt = (
+            f"Project Context:\n{context_str}\n\n"
+            f"User Request: {user_query}\n\n"
+            f"Mouser Search Results:\n{products_summary}"
+        )
+        response = await self._call_gemini(system_prompt, user_prompt)
+        if response:
+            try:
+                text = response.strip()
+                if text.startswith("```"):
+                    text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+                    text = text.rsplit("```", 1)[0]
+                return json.loads(text)
+            except (json.JSONDecodeError, KeyError):
+                pass
+        # Fallback: return unsorted with neutral scores
+        return {
+            "ranked_products": [
+                {"index": i, "relevance_score": 0.5, "compatibility_notes": "Automated ranking unavailable"}
+                for i in range(len(products))
+            ],
+            "summary": "Search results returned without AI ranking (Gemini unavailable).",
+        }
+
     async def _handle_search_parts(self, query: AgentQuery) -> AgentResponse:
         context = self._build_context(query)
         context_str = self._format_context_for_prompt(context)
-        system_prompt = """You are Solus, an AI assistant that recommends electronic components for robotics projects.
-Given the user's requirements and the project's existing system context, recommend specific components.
-Include: part name, manufacturer, key specs, compatibility reasoning with existing components, and price range.
-Cross-reference with the project's context model for compatibility. NEVER hallucinate specifications."""
+
+        # Phase 1: Extract search keywords
+        keywords = await self._extract_search_params(context_str, query.query)
+
+        # Web search for components
+        try:
+            search_results = search_components(keywords)
+        except ComponentSearchError as exc:
+            return AgentResponse(
+                query_id=query.id,
+                response_text=str(exc),
+                structured_data={"memory_hits": context.get("memory_hits", [])},
+                sources=["web_search"],
+                confidence=0.1,
+            )
+
+        if not search_results:
+            # Fall back to LLM-only search
+            return await self._handle_search_parts_llm_only(query, context, context_str)
+
+
+        # Phase 2: Rank candidates
+        ranking = await self._rank_candidates(context_str, query.query, search_results)
+        ranked_products = ranking.get("ranked_products", [])
+        summary = ranking.get("summary", "")
+
+        # Build PartCandidate objects
+        part_candidates = []
+        for rp in sorted(ranked_products, key=lambda x: x.get("relevance_score", 0), reverse=True):
+            idx = rp.get("index", 0)
+            if idx >= len(search_results):
+                continue
+            mp = search_results[idx]
+            pricing = mp.get("pricing", [])
+            price_range = ""
+            if pricing:
+                prices = [p["unit_price"] for p in pricing if p.get("unit_price")]
+                if prices:
+                    price_range = f"${min(prices):.2f} - ${max(prices):.2f}" if len(prices) > 1 else f"${prices[0]:.2f}"
+
+            pc = PartCandidate(
+                name=mp.get("description", mp.get("manufacturer_part_number", "")),
+                manufacturer=mp.get("manufacturer", ""),
+                manufacturer_part_number=mp.get("manufacturer_part_number", ""),
+                distributor_part_number=mp.get("mouser_part_number", ""),
+                specs=mp.get("parameters", {}),
+                datasheet_url=mp.get("datasheet_url", ""),
+                product_url=mp.get("product_url", ""),
+                photo_url=mp.get("photo_url", ""),
+                price_range=price_range,
+                unit_price=float(mp.get("unit_price", 0)),
+                quantity_available=int(mp.get("quantity_available", 0)),
+                category=mp.get("category", ""),
+                source_url=mp.get("product_url", ""),
+                relevance_score=rp.get("relevance_score", 0.5),
+                compatibility_notes=rp.get("compatibility_notes", ""),
+            )
+            part_candidates.append(pc)
+
+        # Build response text
+        response_lines = []
+        if summary:
+            response_lines.append(summary)
+            response_lines.append("")
+        for i, pc in enumerate(part_candidates, 1):
+            response_lines.append(
+                f"{i}. **{pc.manufacturer_part_number}** by {pc.manufacturer} — "
+                f"${pc.unit_price:.2f}, {pc.quantity_available} in stock "
+                f"(compatibility: {pc.relevance_score:.0%})"
+            )
+            if pc.compatibility_notes:
+                response_lines.append(f"   {pc.compatibility_notes}")
+
+        return AgentResponse(
+            query_id=query.id,
+            response_text="\n".join(response_lines),
+            structured_data={
+                "part_candidates": [vars(pc) for pc in part_candidates],
+                "memory_hits": context.get("memory_hits", []),
+            },
+            sources=["gemini", "web_search", "context_model"],
+            confidence=0.85,
+        )
+
+    async def _handle_search_parts_llm_only(
+        self, query: AgentQuery, context: dict, context_str: str
+    ) -> AgentResponse:
+        """Fallback: LLM-only component search when DigiKey is unavailable."""
+        system_prompt = (
+            "You are Solus, an AI assistant that recommends electronic components for robotics projects.\n"
+            "Given the user's requirements and the project's existing system context, recommend specific components.\n"
+            "Include: part name, manufacturer, key specs, compatibility reasoning with existing components, and price range.\n"
+            "Cross-reference with the project's context model for compatibility. NEVER hallucinate specifications."
+        )
         user_prompt = f"Project Context:\n{context_str}\n\nComponent Request: {query.query}"
         gemini_response = await self._call_gemini(system_prompt, user_prompt)
         if gemini_response:
-            return AgentResponse(query_id=query.id, response_text=gemini_response,
+            return AgentResponse(
+                query_id=query.id,
+                response_text=gemini_response,
                 structured_data={"memory_hits": context.get("memory_hits", [])},
-                sources=["gemini", "context_model"], confidence=0.7)
+                sources=["gemini", "context_model"],
+                confidence=0.7,
+            )
         fallback = f"Component search for: {query.query}\n\nGemini API is not available. To get AI-powered component recommendations, set the GEMINI_API_KEY environment variable.\n\n"
         if context.get("memory_hits"):
             fallback += "Related items from memory:\n"
             for hit in context["memory_hits"]:
                 fallback += f"- {hit['content'][:200]}\n"
-        return AgentResponse(query_id=query.id, response_text=fallback,
+        return AgentResponse(
+            query_id=query.id,
+            response_text=fallback,
             structured_data={"memory_hits": context.get("memory_hits", [])},
-            sources=["fallback"], confidence=0.1)
+            sources=["fallback"],
+            confidence=0.1,
+        )
 
     async def _handle_extract_values(self, query: AgentQuery) -> AgentResponse:
         context = self._build_context(query)

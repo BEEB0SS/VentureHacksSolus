@@ -289,11 +289,19 @@ class PartCandidate:
     id: str = field(default_factory=_uid)
     name: str = ""
     manufacturer: str = ""
+    manufacturer_part_number: str = ""
+    distributor_part_number: str = ""
     specs: dict[str, Any] = field(default_factory=dict)
     datasheet_url: str = ""
+    product_url: str = ""
+    photo_url: str = ""
     price_range: str = ""
+    unit_price: float = 0.0
+    quantity_available: int = 0
+    category: str = ""
     source_url: str = ""
     relevance_score: float = 0.0
+    compatibility_notes: str = ""
 
 
 @dataclass
