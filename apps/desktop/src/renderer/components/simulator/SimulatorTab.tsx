@@ -318,39 +318,8 @@ export default function SimulatorTab() {
 
       {/* Main */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left — Parameters */}
-        <div className="w-60 border-r border-solus-border/50 overflow-y-auto p-3 space-y-3">
-          <Card title="Parameters" compact>
-            <div className="space-y-2.5">
-              {Object.entries(PARAM_LABELS).map(([key, { label, unit, step }]) => (
-                <div key={key}>
-                  <label className="flex items-center justify-between text-[11px] text-solus-text-dim mb-1">
-                    <span>{label}</span>
-                    <span className="font-mono text-solus-text-muted text-[10px]">{unit}</span>
-                  </label>
-                  <input type="number" value={params[key] ?? 0} step={step}
-                    onChange={e => setParams(prev => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))}
-                    className={inputCls} />
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          <Card title="Wheel Speed" compact>
-            <div className="space-y-2.5">
-              <div>
-                <label className="text-[11px] text-solus-text-dim mb-1 block">Left (rad/s)</label>
-                <input type="number" value={leftSpeed} step={0.5}
-                  onChange={e => setLeftSpeed(parseFloat(e.target.value) || 0)} className={inputCls} />
-              </div>
-              <div>
-                <label className="text-[11px] text-solus-text-dim mb-1 block">Right (rad/s)</label>
-                <input type="number" value={rightSpeed} step={0.5}
-                  onChange={e => setRightSpeed(parseFloat(e.target.value) || 0)} className={inputCls} />
-              </div>
-            </div>
-          </Card>
-
+        {/* Left — Settings */}
+        <div className="w-52 border-r border-solus-border/50 overflow-y-auto p-3 space-y-3">
           <Card title="Settings" compact>
             <div className="space-y-2.5">
               <div>
