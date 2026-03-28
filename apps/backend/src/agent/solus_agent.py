@@ -37,7 +37,7 @@ class SolusAgent:
         if not GEMINI_AVAILABLE or not api_key:
             return
         # Try models in order of preference
-        for model_name in ("gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"):
+        for model_name in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"):
             try:
                 genai.configure(api_key=api_key)
                 self._gemini_model = genai.GenerativeModel(model_name)
@@ -125,12 +125,14 @@ class SolusAgent:
     async def _call_gemini(self, system_prompt: str, user_prompt: str) -> Optional[str]:
         """Call Gemini API. Returns None if unavailable."""
         if not self._gemini_model:
+            print("[Solus] _call_gemini: no model initialized")
             return None
         try:
             full_prompt = f"{system_prompt}\n\n{user_prompt}"
             response = await asyncio.to_thread(self._gemini_model.generate_content, full_prompt)
             return response.text
-        except Exception:
+        except Exception as e:
+            print(f"[Solus] Gemini call failed: {e}")
             return None
 
     async def _handle_general(self, query: AgentQuery) -> AgentResponse:

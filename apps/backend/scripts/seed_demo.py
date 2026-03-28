@@ -227,6 +227,9 @@ def seed():
         (nav_plan_id,   scan_id,       "subscribes_to",     1.0),
         (nav_plan_id,   imu_data_id,   "subscribes_to",     1.0),
 
+        # MPU6050 gyro feeds into wheel odometry (heading correction)
+        (mpu6050_id,   odom_id,        "contributes_to", 1.0),
+
         # Runtime signals observed_in
         (nema17_id,    motor_rpm_id,   "observed_in",    1.0),
         (battery_id,   batt_voltage_id,"observed_in",    1.0),
