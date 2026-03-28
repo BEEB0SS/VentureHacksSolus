@@ -53,8 +53,9 @@ const RELATION_COLORS: Record<string, string> = {
   reads_from:    "#c084fc",
   publishes:     "#22d3ee",
   subscribes_to: "#f472b6",
-  observed_in:   "#f87171",
-  documented_by: "#64748b",
+  observed_in:    "#f87171",
+  documented_by:  "#64748b",
+  contributes_to: "#a78bfa",
 };
 
 const IMPACT_COLOR = "#ef4444";
@@ -71,6 +72,8 @@ export default function ContextModelTab({ projectId }: { projectId: string }) {
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState<string | null>(null);
   const [tooltip,      setTooltip]      = useState<{ x: number; y: number; entity: GraphEntity } | null>(null);
+  const [aiAnalysis,   setAiAnalysis]   = useState<{ summary: string; explanations: Array<{ name: string; entity_type?: string; how_affected: string; action: string }> } | null>(null);
+  const [aiLoading,    setAiLoading]    = useState(false);
 
   const loadGraph = useCallback(async () => {
     if (!projectId) return;
@@ -91,17 +94,45 @@ export default function ContextModelTab({ projectId }: { projectId: string }) {
 
   const runImpact = useCallback(async (entityId: string) => {
     setSourceNodeId(entityId);
+    setAiAnalysis(null);
     try {
       const resp = await fetch(`${API}/projects/${projectId}/impact/${entityId}`);
       if (!resp.ok) throw new Error("Impact analysis failed");
       const impacted: GraphEntity[] = await resp.json();
       // Exclude the source node from impactedIds — it gets its own distinct treatment
       setImpactedIds(new Set(impacted.map((e) => e.id).filter((id) => id !== entityId)));
+
+      // AI-powered explanation via Solus agent
+      const sourceName = graph.entities.find((e) => e.id === entityId)?.name ?? entityId;
+      setAiLoading(true);
+      try {
+        const aiResp = await fetch(`${API}/projects/${projectId}/agent/query`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: `What breaks or needs updating if ${sourceName} changes?`,
+            query_type: "impact_analysis",
+            context_entity_ids: [entityId],
+          }),
+        });
+        if (aiResp.ok) {
+          const aiData = await aiResp.json();
+          setAiAnalysis({
+            summary: aiData.response_text ?? "",
+            explanations: aiData.structured_data?.impact_explanations ?? [],
+          });
+        }
+      } catch {
+        // AI analysis is best-effort — don't fail the whole impact run
+      } finally {
+        setAiLoading(false);
+      }
     } catch (e: unknown) {
       setSourceNodeId(null);
+      setAiLoading(false);
       setError(e instanceof Error ? e.message : "Impact analysis failed");
     }
-  }, [projectId]);
+  }, [projectId, graph.entities]);
 
   useEffect(() => {
     if (!svgRef.current || graph.entities.length === 0) return;
@@ -575,7 +606,7 @@ export default function ContextModelTab({ projectId }: { projectId: string }) {
         <div style={{ position: "absolute", top: 14, right: 14, display: "flex", gap: 8 }}>
           {sourceNodeId && (
             <button
-              onClick={() => { setImpactedIds(new Set()); setSourceNodeId(null); }}
+              onClick={() => { setImpactedIds(new Set()); setSourceNodeId(null); setAiAnalysis(null); }}
               style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", fontSize: 10, fontFamily: "JetBrains Mono, monospace", letterSpacing: "0.08em", fontWeight: 600, color: "#fbbf24", background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.4)", borderRadius: 6, cursor: "pointer", backdropFilter: "blur(8px)", transition: "background 0.15s, border-color 0.15s" }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(251,191,36,0.22)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(251,191,36,0.7)"; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(251,191,36,0.12)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(251,191,36,0.4)"; }}
@@ -654,23 +685,70 @@ export default function ContextModelTab({ projectId }: { projectId: string }) {
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <button
                   onClick={() => runImpact(selectedNode.id)}
-                  style={{ width: "100%", padding: "9px 0", fontSize: 9, letterSpacing: "0.14em", fontFamily: "JetBrains Mono, monospace", textTransform: "uppercase", color: "#ef4444", background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 6, cursor: "pointer", transition: "background 0.15s, border-color 0.15s" }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(239,68,68,0.14)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(239,68,68,0.5)"; }}
+                  disabled={aiLoading}
+                  style={{ width: "100%", padding: "9px 0", fontSize: 9, letterSpacing: "0.14em", fontFamily: "JetBrains Mono, monospace", textTransform: "uppercase", color: aiLoading ? "#6b3a3a" : "#ef4444", background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 6, cursor: aiLoading ? "default" : "pointer", transition: "background 0.15s, border-color 0.15s" }}
+                  onMouseEnter={(e) => { if (!aiLoading) { (e.currentTarget as HTMLButtonElement).style.background = "rgba(239,68,68,0.14)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(239,68,68,0.5)"; } }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(239,68,68,0.07)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(239,68,68,0.25)"; }}
                 >
-                  ⚡ Run Impact Analysis
+                  {aiLoading ? "⏳ ANALYZING..." : "⚡ RUN IMPACT ANALYSIS"}
                 </button>
-                {impactedIds.size > 0 && (
+
+                {impactedIds.size > 0 && !aiLoading && (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <span style={{ fontSize: 9, color: "#ef4444", letterSpacing: "0.08em" }}>{impactedIds.size} nodes impacted</span>
                     <button
-                      onClick={() => { setImpactedIds(new Set()); setSourceNodeId(null); }}
+                      onClick={() => { setImpactedIds(new Set()); setSourceNodeId(null); setAiAnalysis(null); }}
                       style={{ fontSize: 9, color: "#374151", background: "none", border: "none", cursor: "pointer", fontFamily: "JetBrains Mono, monospace", letterSpacing: "0.08em" }}
                       onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#6b7280"; }}
                       onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#374151"; }}
                     >
                       clear
                     </button>
+                  </div>
+                )}
+
+                {/* AI Analysis Panel */}
+                {aiAnalysis && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+
+                    {/* Summary */}
+                    <div style={{ background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.2)", borderRadius: 8, padding: "10px 12px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 7 }}>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2">
+                          <path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z"/><path d="M12 8v4l3 3"/>
+                        </svg>
+                        <span style={{ fontSize: 8, color: "#a78bfa", letterSpacing: "0.16em", textTransform: "uppercase", fontWeight: 600 }}>AI Analysis</span>
+                      </div>
+                      <p style={{ fontSize: 10, color: "#9ca3af", lineHeight: 1.65, margin: 0 }}>{aiAnalysis.summary}</p>
+                    </div>
+
+                    {/* Per-component explanations */}
+                    {aiAnalysis.explanations.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <div style={{ fontSize: 8, color: "#374151", letterSpacing: "0.14em", textTransform: "uppercase" }}>Affected Components</div>
+                        {aiAnalysis.explanations.map((exp, i) => {
+                          const typeColor = TYPE_COLORS[exp.entity_type ?? ""] ?? "#94a3b8";
+                          return (
+                            <div key={i} style={{ background: "#0d0d18", border: "1px solid #1e1e2e", borderRadius: 7, overflow: "hidden" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 10px", borderBottom: "1px solid #1a1a28", background: `${typeColor}08` }}>
+                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: typeColor, flexShrink: 0, boxShadow: `0 0 5px ${typeColor}` }} />
+                                <span style={{ fontSize: 10, fontWeight: 600, color: "#e2e8f0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{exp.name}</span>
+                              </div>
+                              <div style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+                                <div>
+                                  <div style={{ fontSize: 8, color: "#4b5563", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 3 }}>Impact</div>
+                                  <p style={{ fontSize: 9, color: "#9ca3af", lineHeight: 1.6, margin: 0 }}>{exp.how_affected}</p>
+                                </div>
+                                <div style={{ borderTop: "1px solid #1a1a28", paddingTop: 6 }}>
+                                  <div style={{ fontSize: 8, color: "#4b5563", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 3 }}>Action</div>
+                                  <p style={{ fontSize: 9, color: "#fbbf24", lineHeight: 1.6, margin: 0 }}>{exp.action}</p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

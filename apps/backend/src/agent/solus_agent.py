@@ -35,12 +35,18 @@ class SolusAgent:
     def _init_gemini(self):
         """Initialize Gemini if API key is available."""
         api_key = os.environ.get("GEMINI_API_KEY")
-        if GEMINI_AVAILABLE and api_key:
+        if not GEMINI_AVAILABLE or not api_key:
+            return
+        # Try models in order of preference
+        for model_name in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"):
             try:
                 genai.configure(api_key=api_key)
-                self._gemini_model = genai.GenerativeModel("gemini-2.5-flash")
-            except Exception:
-                self._gemini_model = None
+                self._gemini_model = genai.GenerativeModel(model_name)
+                print(f"[Solus] Gemini ready: {model_name}")
+                return
+            except Exception as e:
+                print(f"[Solus] Gemini model {model_name} failed: {e}")
+        print("[Solus] WARNING: Gemini init failed for all models — falling back to rule-based responses")
 
     async def query(self, agent_query: AgentQuery) -> AgentResponse:
         """Route a query to the appropriate handler based on query_type."""
@@ -121,12 +127,14 @@ class SolusAgent:
     async def _call_gemini(self, system_prompt: str, user_prompt: str) -> Optional[str]:
         """Call Gemini API. Returns None if unavailable."""
         if not self._gemini_model:
+            print("[Solus] _call_gemini: no model initialized")
             return None
         try:
             full_prompt = f"{system_prompt}\n\n{user_prompt}"
             response = await asyncio.to_thread(self._gemini_model.generate_content, full_prompt)
             return response.text
-        except Exception:
+        except Exception as e:
+            print(f"[Solus] Gemini call failed: {e}")
             return None
 
     async def _handle_general(self, query: AgentQuery) -> AgentResponse:
@@ -404,31 +412,64 @@ NEVER hallucinate values. If a value is not found, say so explicitly."""
             except Exception:
                 pass
         context_str = self._format_context_for_prompt(context)
+        impact_list = "\n".join(f"- {ie['name']} ({ie['entity_type']})" for ie in impacted_entities) if impacted_entities else "None found"
         system_prompt = """You are Solus, an AI assistant explaining the impact of changes in a robotics system.
-Given a changed component and the list of impacted components (found via graph traversal),
-explain HOW each impacted component is affected and what the engineer should do about it.
-Be specific about signal paths, interfaces, and code changes needed."""
-        impact_info = ""
-        if impacted_entities:
-            impact_info = "\n\nImpacted Components (from graph traversal):\n"
-            for ie in impacted_entities:
-                impact_info += f"- {ie['name']} ({ie['entity_type']})\n"
-        user_prompt = f"Project Context:\n{context_str}\n{impact_info}\n\nChange Description: {query.query}"
+
+Return your response as valid JSON with exactly this structure:
+{
+  "summary": "One paragraph overview of the overall impact and risk level.",
+  "entity_explanations": [
+    {
+      "name": "component name",
+      "how_affected": "Specific explanation of how this component is affected — signal paths, interface changes, data format, timing, etc.",
+      "action": "Concrete action the engineer must take — e.g. update config value, rewrite function, re-test integration."
+    }
+  ]
+}
+
+Be specific. Reference actual signal names, function names, config keys, and interface types from the project context where available.
+Do not include markdown fences or extra text — return only the JSON object."""
+        user_prompt = f"Project Context:\n{context_str}\n\nImpacted Components (graph traversal):\n{impact_list}\n\nChange Description: {query.query}"
         gemini_response = await self._call_gemini(system_prompt, user_prompt)
         if gemini_response:
-            return AgentResponse(query_id=query.id, response_text=gemini_response,
-                structured_data={"impacted_entities": impacted_entities, "memory_hits": context.get("memory_hits", [])},
-                sources=["gemini", "context_model", "impact_analysis"], confidence=0.8)
+            summary = gemini_response
+            impact_explanations = []
+            try:
+                # Strip markdown fences if present
+                clean = gemini_response.strip()
+                if clean.startswith("```"):
+                    clean = "\n".join(clean.split("\n")[1:])
+                if clean.endswith("```"):
+                    clean = "\n".join(clean.split("\n")[:-1])
+                parsed = json.loads(clean.strip())
+                summary = parsed.get("summary", gemini_response)
+                impact_explanations = parsed.get("entity_explanations", [])
+                # Merge entity metadata into explanations
+                entity_map = {e["name"]: e for e in impacted_entities}
+                for exp in impact_explanations:
+                    matched = entity_map.get(exp.get("name", ""))
+                    if matched:
+                        exp["id"] = matched["id"]
+                        exp["entity_type"] = matched["entity_type"]
+            except Exception:
+                pass
+            return AgentResponse(query_id=query.id, response_text=summary,
+                structured_data={
+                    "impacted_entities": impacted_entities,
+                    "impact_explanations": impact_explanations,
+                    "memory_hits": context.get("memory_hits", []),
+                },
+                sources=["gemini", "context_model", "impact_analysis"], confidence=0.85)
         fallback = f"Impact analysis for: {query.query}\n\n"
         if impacted_entities:
             fallback += f"Found {len(impacted_entities)} impacted components:\n"
             for ie in impacted_entities:
                 fallback += f"- {ie['name']} ({ie['entity_type']})\n"
-            fallback += "\nSet GEMINI_API_KEY for a detailed explanation of how each component is affected."
+            fallback += "\nRestart backend with GEMINI_API_KEY set for per-component AI explanations."
         else:
-            fallback += "No impacted components found. Provide entity IDs in context_entity_ids to run impact analysis."
+            fallback += "No impacted components found. Select an entity from the dropdown to run impact analysis."
         return AgentResponse(query_id=query.id, response_text=fallback,
-            structured_data={"impacted_entities": impacted_entities, "memory_hits": context.get("memory_hits", [])},
+            structured_data={"impacted_entities": impacted_entities, "impact_explanations": [], "memory_hits": context.get("memory_hits", [])},
             sources=["context_model", "fallback"], confidence=0.3)
 
     async def _handle_diagnose_and_replace(self, query: AgentQuery) -> AgentResponse:
