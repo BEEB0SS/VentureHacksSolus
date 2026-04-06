@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { Boxes, Network, Search, Activity, Cpu } from 'lucide-react'
+import LiveBenchTab from './components/live-bench/LiveBenchTab'
+import AgentTab from './components/agent/AgentTab'
 
 // Placeholders — Claude Code agents replace these
 const WorkspaceTab = () => (
@@ -7,12 +9,6 @@ const WorkspaceTab = () => (
 )
 const ContextModelTab = () => (
   <div className="p-8 text-solus-text-dim">Context Model — not built yet</div>
-)
-const AgentTab = () => (
-  <div className="p-8 text-solus-text-dim">Agent — not built yet</div>
-)
-const LiveBenchTab = () => (
-  <div className="p-8 text-solus-text-dim">Live Bench — not built yet</div>
 )
 const SimulatorTab = () => (
   <div className="p-8 text-solus-text-dim">Simulator — not built yet</div>
